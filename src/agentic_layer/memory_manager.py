@@ -11,7 +11,7 @@ from memory_layer.types import Memory
 from biz_layer.mem_memorize import memorize
 from memory_layer.memory_manager import MemorizeRequest
 from .fetch_mem_service import get_fetch_memory_service
-from .retrieve_mem_service import get_retrieve_mem_service
+# from .retrieve_mem_service import get_retrieve_mem_service
 from .dtos.memory_query import (
     FetchMemRequest,
     FetchMemResponse,

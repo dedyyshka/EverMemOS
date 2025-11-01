@@ -95,6 +95,7 @@ class MemCell(DocumentBase, AuditBase):
 
     episode: Optional[str] = Field(default=None, description="情景记忆")
     semantic_memories: Optional[List] = Field(default=None, description="语义记忆")
+    event_log: Optional[Dict] = Field(default=None, description="Event Log 原子事实")
     extend: Optional[Dict] = Field(default=None, description="扩展字段")
 
     model_config = ConfigDict(

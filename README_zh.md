@@ -230,7 +230,7 @@ cp env.template .env
 运行记忆提取脚本，处理示例对话数据并构建记忆数据库：
 
 ```bash
-python demo/extract_memory.py
+uv run python src/bootstrap.py demo/extract_memory.py
 ```
 
 该脚本将：
@@ -252,7 +252,7 @@ python demo/extract_memory.py
 提取记忆后，启动交互式聊天演示：
 
 ```bash
-python demo/chat_with_memory.py
+uv run python src/bootstrap.py demo/chat_with_memory.py
 ```
 
 这将启动一个命令行界面，您可以与一个利用了刚提取的记忆的智能体进行对话。更多关于聊天功能的使用技巧和推荐问题，请参阅 [Demo 指南](demo/README_zh.md)。
@@ -273,19 +273,19 @@ python demo/chat_with_memory.py
 
 ```bash
 # 阶段 1: 记忆单元提取
-python evaluation/locomo_evaluation/stage1_memcells_extraction.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage1_memcells_extraction.py
 
 # 阶段 2: 索引构建
-python evaluation/locomo_evaluation/stage2_index_building.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage2_index_building.py
 
 # 阶段 3: 记忆检索
-python evaluation/locomo_evaluation/stage3_memory_retrivel.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage3_memory_retrivel.py
 
 # 阶段 4: 回应生成
-python evaluation/locomo_evaluation/stage4_response.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage4_response.py
 
 # 阶段 5: 评估
-python evaluation/locomo_evaluation/stage5_eval.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage5_eval.py
 ```
 
 每个脚本对应评估流水线中的一个阶段，从数据处理到性能评分。

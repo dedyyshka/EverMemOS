@@ -232,7 +232,7 @@ The demo showcases the end-to-end functionality of EverMemOS.
 Run the memory extraction script to process sample conversation data and build the memory database:
 
 ```bash
-python demo/extract_memory.py
+uv run python src/bootstrap.py demo/extract_memory.py
 ```
 
 This script will:
@@ -254,7 +254,7 @@ This script will:
 After extracting memories, start the interactive chat demo:
 
 ```bash
-python demo/chat_with_memory.py
+uv run python src/bootstrap.py demo/chat_with_memory.py
 ```
 
 This will launch a command-line interface where you can converse with an agent that utilizes the just-extracted memories. For more details on chat features, tips, and suggested questions, please see the [Demo Guide](demo/README.md).
@@ -275,19 +275,19 @@ The evaluation framework provides a systematic way to measure the performance of
 
 ```bash
 # Stage 1: MemCell Extraction
-python evaluation/locomo_evaluation/stage1_memcells_extraction.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage1_memcells_extraction.py
 
 # Stage 2: Index Building
-python evaluation/locomo_evaluation/stage2_index_building.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage2_index_building.py
 
 # Stage 3: Memory Retrieval
-python evaluation/locomo_evaluation/stage3_memory_retrivel.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage3_memory_retrivel.py
 
 # Stage 4: Response Generation
-python evaluation/locomo_evaluation/stage4_response.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage4_response.py
 
 # Stage 5: Evaluation
-python evaluation/locomo_evaluation/stage5_eval.py
+uv run python src/bootstrap.py evaluation/locomo_evaluation/stage5_eval.py
 ```
 
 Each script corresponds to a stage in the evaluation pipeline, from data processing to performance scoring.

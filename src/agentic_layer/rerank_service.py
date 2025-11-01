@@ -238,6 +238,68 @@ class DeepInfraRerankService(DeepInfraRerankServiceInterface):
 
         return self._convert_response_format(combined_response, len(documents))
 
+    async def _send_rerank_request_batch(
+        self, query: str, documents: List[str], instruction: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """向DeepInfra API发送单个重排序请求批次"""
+        await self._ensure_session()
+
+        # 构建请求数据 - 使用DeepInfra推理API格式
+        if instruction is None:
+            request_data = {
+                "queries": [query],  # 查询列表
+                "documents": documents,  # 文档列表
+            }
+        else:
+            request_data = {
+                "queries": [query],  # 查询列表
+                "documents": documents,  # 文档列表
+                "instruction": instruction,
+            }
+
+        # 使用推理API端点
+        url = f"{self.config.base_url}/{self.config.model}"
+
+        async with self._semaphore:
+            for attempt in range(self.config.max_retries):
+                try:
+                    async with self.session.post(url, json=request_data) as response:
+                        if response.status == 200:
+                            return await response.json()
+                        else:
+                            error_text = await response.text()
+                            logger.error(
+                                f"DeepInfra Rerank API error (attempt {attempt + 1}): {response.status} - {error_text}"
+                            )
+
+                            if attempt < self.config.max_retries - 1:
+                                await asyncio.sleep(2**attempt)  # 指数退避
+                                continue
+                            else:
+                                raise DeepInfraRerankError(
+                                    f"Rerank API request failed: {response.status} - {error_text}"
+                                )
+
+                except aiohttp.ClientError as e:
+                    logger.error(
+                        f"DeepInfra Rerank API client error (attempt {attempt + 1}): {e}"
+                    )
+                    if attempt < self.config.max_retries - 1:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    else:
+                        raise DeepInfraRerankError(f"Rerank client error: {e}")
+
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected rerank error (attempt {attempt + 1}): {e}"
+                    )
+                    if attempt < self.config.max_retries - 1:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    else:
+                        raise DeepInfraRerankError(f"Unexpected rerank error: {e}")
+
     def _convert_response_format(
         self, api_response: Dict[str, Any], num_documents: int
     ) -> Dict[str, Any]:

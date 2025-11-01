@@ -86,6 +86,8 @@ class MemCell:
 
     # 语义记忆联想预测字段
     semantic_memories: Optional[List['SemanticMemoryItem']] = None  # 语义记忆联想列表
+    # Event Log 字段
+    event_log: Optional[Any] = None  # Event Log 对象
     # extend fields, can be used to store any additional information
     extend: Optional[Dict[str, Any]] = None
 
@@ -120,6 +122,10 @@ class MemCell:
                 if self.semantic_memories
                 else None
             ),
+            "event_log": (
+                self.event_log.to_dict() if hasattr(self.event_log, 'to_dict')
+                else self.event_log
+            ) if self.event_log else None,
             "extend": self.extend,
         }
 
