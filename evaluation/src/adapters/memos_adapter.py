@@ -62,9 +62,6 @@ class MemosAdapter(OnlineAPIAdapter):
         
         self.console = Console()
         
-        # 🔥 缓存 conversation metadata，用于双视角搜索
-        self._conversation_metadata = {}
-        
         print(f"   API URL: {self.api_url}")
         print(f"   Search Mode: {self.search_mode}")
         print(f"   Include Preference: {self.include_preference}")
@@ -96,15 +93,6 @@ class MemosAdapter(OnlineAPIAdapter):
             speaker_a = conv.metadata.get("speaker_a", "")
             speaker_b = conv.metadata.get("speaker_b", "")
             need_dual_perspective = self._need_dual_perspective(speaker_a, speaker_b)
-            
-            # 🔥 缓存 conversation metadata 用于双视角搜索
-            self._conversation_metadata[conv_id] = {
-                "speaker_a": speaker_a,
-                "speaker_b": speaker_b,
-                "speaker_a_user_id": self._extract_user_id(conv, speaker="speaker_a"),
-                "speaker_b_user_id": self._extract_user_id(conv, speaker="speaker_b"),
-                "need_dual_perspective": need_dual_perspective,
-            }
             
             self.console.print(f"\n📥 Adding conversation: {conv_id}", style="cyan")
             
@@ -316,7 +304,7 @@ class MemosAdapter(OnlineAPIAdapter):
         return {"text_mem": [{"memories": []}], "pref_string": ""}
     
     async def search(
-        self, 
+        self,
         query: str,
         conversation_id: str,
         index: Any,
@@ -332,26 +320,38 @@ class MemosAdapter(OnlineAPIAdapter):
         """
         top_k = kwargs.get("top_k", 10)
         
-        # 🔥 检查是否需要双视角搜索
-        metadata = self._conversation_metadata.get(conversation_id, {})
-        need_dual_perspective = metadata.get("need_dual_perspective", False)
+        # 🔥 从 kwargs 直接获取对话信息（不使用缓存）
+        conversation = kwargs.get("conversation")
+        if conversation:
+            speaker_a = conversation.metadata.get("speaker_a", "")
+            speaker_b = conversation.metadata.get("speaker_b", "")
+            speaker_a_user_id = self._extract_user_id(conversation, speaker="speaker_a")
+            speaker_b_user_id = self._extract_user_id(conversation, speaker="speaker_b")
+            need_dual_perspective = self._need_dual_perspective(speaker_a, speaker_b)
+        else:
+            # 回退方案：使用默认 user_id
+            speaker_a_user_id = f"{conversation_id}_speaker_a"
+            speaker_b_user_id = f"{conversation_id}_speaker_b"
+            speaker_a = "speaker_a"
+            speaker_b = "speaker_b"
+            need_dual_perspective = False
         
         if need_dual_perspective:
             # 🔥 双视角搜索：从两个 speaker 的视角分别搜索
             return await self._search_dual_perspective(
-                query, conversation_id, metadata, top_k
+                query, conversation_id, speaker_a, speaker_b,
+                speaker_a_user_id, speaker_b_user_id, top_k
             )
         else:
             # 单视角搜索（标准 user/assistant 数据）
             return await self._search_single_perspective(
-                query, conversation_id, top_k
+                query, conversation_id, speaker_a_user_id, top_k
             )
     
     async def _search_single_perspective(
-        self, query: str, conversation_id: str, top_k: int
+        self, query: str, conversation_id: str, user_id: str, top_k: int
     ) -> SearchResult:
         """单视角搜索（用于标准 user/assistant 数据）"""
-        user_id = f"{conversation_id}_speaker_a"
         
         try:
             search_data = self._search_single_user(query, user_id, top_k)
@@ -398,17 +398,20 @@ class MemosAdapter(OnlineAPIAdapter):
         )
     
     async def _search_dual_perspective(
-        self, query: str, conversation_id: str, metadata: Dict, top_k: int
+        self,
+        query: str,
+        conversation_id: str,
+        speaker_a: str,
+        speaker_b: str,
+        speaker_a_user_id: str,
+        speaker_b_user_id: str,
+        top_k: int
     ) -> SearchResult:
         """
         双视角搜索（用于自定义 speaker 名称的数据）
         
         同时搜索两个 speaker 的记忆并合并结果
         """
-        speaker_a = metadata["speaker_a"]
-        speaker_b = metadata["speaker_b"]
-        speaker_a_user_id = metadata["speaker_a_user_id"]
-        speaker_b_user_id = metadata["speaker_b_user_id"]
         
         try:
             # 分别搜索两个 user_id
@@ -434,7 +437,7 @@ class MemosAdapter(OnlineAPIAdapter):
         for memory in search_a_results["text_mem"][0]["memories"]:
             all_results.append({
                 "content": memory.get("memory", ""),
-                "score": memory.get("score", 0.0),
+                "score": memory.get("relativity", 0.0),  # 🔥 修复：使用 relativity 字段
                 "user_id": speaker_a_user_id,  # 标记来源
                 "metadata": {
                     "memory_id": memory.get("memory_id", ""),
@@ -449,7 +452,7 @@ class MemosAdapter(OnlineAPIAdapter):
         for memory in search_b_results["text_mem"][0]["memories"]:
             all_results.append({
                 "content": memory.get("memory", ""),
-                "score": memory.get("score", 0.0),
+                "score": memory.get("relativity", 0.0),  # 🔥 修复：使用 relativity 字段
                 "user_id": speaker_b_user_id,  # 标记来源
                 "metadata": {
                     "memory_id": memory.get("memory_id", ""),

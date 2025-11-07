@@ -59,9 +59,6 @@ class Mem0Adapter(OnlineAPIAdapter):
         self.max_content_length = config.get("max_content_length", 8000)
         self.console = Console()
         
-        # 🔥 缓存 conversation metadata，用于双视角搜索
-        self._conversation_metadata = {}
-        
         # 设置 custom instructions（如果配置中有）
         custom_instructions = config.get("custom_instructions", None)
         if custom_instructions:
@@ -192,15 +189,6 @@ class Mem0Adapter(OnlineAPIAdapter):
             
             # 🔥 检测是否需要双视角处理
             need_dual_perspective = self._need_dual_perspective(speaker_a, speaker_b)
-            
-            # 🔥 缓存 conversation metadata 用于双视角搜索
-            self._conversation_metadata[conv_id] = {
-                "speaker_a": speaker_a,
-                "speaker_b": speaker_b,
-                "speaker_a_user_id": speaker_a_user_id,
-                "speaker_b_user_id": speaker_b_user_id,
-                "need_dual_perspective": need_dual_perspective,
-            }
             
             # 获取时间戳（使用第一条消息的时间）
             timestamp = None
@@ -380,49 +368,38 @@ class Mem0Adapter(OnlineAPIAdapter):
         """
         top_k = kwargs.get("top_k", 10)
         
-        # 🔥 检查是否需要双视角搜索
-        cached_metadata = self._conversation_metadata.get(conversation_id, {})
-        
-        # 🔥 如果缓存缺失（例如从 checkpoint 恢复），尝试重建
-        if not cached_metadata and "conversation" in kwargs:
-            conversation = kwargs["conversation"]
-            if conversation:
-                speaker_a = conversation.metadata.get("speaker_a", "")
-                speaker_b = conversation.metadata.get("speaker_b", "")
-                speaker_a_user_id = self._extract_user_id(conversation, speaker="speaker_a")
-                speaker_b_user_id = self._extract_user_id(conversation, speaker="speaker_b")
-                need_dual_perspective = self._need_dual_perspective(speaker_a, speaker_b)
-                
-                # 重建缓存
-                cached_metadata = {
-                    "speaker_a": speaker_a,
-                    "speaker_b": speaker_b,
-                    "speaker_a_user_id": speaker_a_user_id,
-                    "speaker_b_user_id": speaker_b_user_id,
-                    "need_dual_perspective": need_dual_perspective,
-                }
-                self._conversation_metadata[conversation_id] = cached_metadata
-                self.console.print(f"   🔄 Rebuilt cache for {conversation_id}", style="dim yellow")
-        
-        need_dual_perspective = cached_metadata.get("need_dual_perspective", False)
+        # 🔥 从 kwargs 直接获取对话信息（不使用缓存）
+        conversation = kwargs.get("conversation")
+        if conversation:
+            speaker_a = conversation.metadata.get("speaker_a", "")
+            speaker_b = conversation.metadata.get("speaker_b", "")
+            speaker_a_user_id = self._extract_user_id(conversation, speaker="speaker_a")
+            speaker_b_user_id = self._extract_user_id(conversation, speaker="speaker_b")
+            need_dual_perspective = self._need_dual_perspective(speaker_a, speaker_b)
+        else:
+            # 回退方案：使用默认 user_id
+            speaker_a_user_id = f"{conversation_id}_speaker_a"
+            speaker_b_user_id = f"{conversation_id}_speaker_b"
+            speaker_a = "speaker_a"
+            speaker_b = "speaker_b"
+            need_dual_perspective = False
         
         if need_dual_perspective:
             # 🔥 双视角搜索：从两个 speaker 的视角分别搜索
             return await self._search_dual_perspective(
-                query, conversation_id, cached_metadata, top_k
+                query, conversation_id, speaker_a, speaker_b, 
+                speaker_a_user_id, speaker_b_user_id, top_k
             )
         else:
             # 单视角搜索（标准 user/assistant 数据）
             return await self._search_single_perspective(
-                query, conversation_id, cached_metadata, top_k
+                query, conversation_id, speaker_a_user_id, top_k
             )
     
     async def _search_single_perspective(
-        self, query: str, conversation_id: str, metadata: Dict, top_k: int
+        self, query: str, conversation_id: str, user_id: str, top_k: int
     ) -> SearchResult:
         """单视角搜索（用于标准 user/assistant 数据）"""
-        # 从缓存的 metadata 中获取 user_id
-        user_id = metadata.get("speaker_a_user_id", f"{conversation_id}_speaker_a")
         
         try:
             results = self.client.search(
@@ -475,13 +452,16 @@ class Mem0Adapter(OnlineAPIAdapter):
         )
     
     async def _search_dual_perspective(
-        self, query: str, conversation_id: str, metadata: Dict, top_k: int
+        self, 
+        query: str, 
+        conversation_id: str,
+        speaker_a: str,
+        speaker_b: str,
+        speaker_a_user_id: str,
+        speaker_b_user_id: str,
+        top_k: int
     ) -> SearchResult:
         """双视角搜索（用于自定义 speaker 名称的数据）"""
-        speaker_a = metadata.get("speaker_a", "")
-        speaker_b = metadata.get("speaker_b", "")
-        speaker_a_user_id = metadata.get("speaker_a_user_id", f"{conversation_id}_speaker_a")
-        speaker_b_user_id = metadata.get("speaker_b_user_id", f"{conversation_id}_speaker_b")
         
         # 双视角搜索：分别搜索两个 user_id
         try:
