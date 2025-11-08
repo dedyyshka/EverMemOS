@@ -279,7 +279,7 @@ class EpisodicMemoryEsRepository(BaseRepository[EpisodicMemoryDoc]):
                     should_queries.append(
                         Q(
                             "match",
-                            search_content__original={
+                            search_content={  # 使用主字段（standard analyzer，会分词）
                                 "query": word,
                                 "boost": word_score,
                             },

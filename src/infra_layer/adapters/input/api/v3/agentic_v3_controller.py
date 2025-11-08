@@ -26,8 +26,9 @@ class AgenticV3Controller(BaseController):
     """
     Agentic Layer V3 API 控制器
 
-    提供专门用于群聊记忆存储的接口：
-    - memorize: 逐条接收简单直接的单条消息并存储为记忆
+    提供专门用于群聊记忆的接口：
+    - memorize: 存储单条消息记忆
+    - retrieve_lightweight: 轻量级检索（Embedding + BM25 + RRF）
     """
 
     def __init__(self):
@@ -198,4 +199,123 @@ class AgenticV3Controller(BaseController):
             logger.error("V3 memorize 请求处理失败: %s", e, exc_info=True)
             raise HTTPException(
                 status_code=500, detail="存储记忆失败，请稍后重试"
+            ) from e
+    
+    @post(
+        "/retrieve_lightweight",
+        response_model=Dict[str, Any],
+        summary="轻量级记忆检索（Embedding + BM25 + RRF）",
+        description="""
+        轻量级记忆检索接口，使用 Embedding + BM25 + RRF 融合策略
+        
+        ## 功能说明：
+        - 并行执行向量检索和关键词检索
+        - 使用 RRF（Reciprocal Rank Fusion）融合结果
+        - 速度快，适合实时场景
+        
+        ## 输入格式：
+        ```json
+        {
+          "query": "北京旅游美食",
+          "user_id": "default",
+          "group_id": "assistant",
+          "time_range_days": 365,
+          "top_k": 20,
+          "retrieval_mode": "rrf",
+          "data_source": "memcell"
+        }
+        ```
+        
+        ## 字段说明：
+        - **query** (必需): 用户查询
+        - **user_id** (可选): 用户ID（用于过滤）
+        - **group_id** (可选): 群组ID（用于过滤）
+        - **time_range_days** (可选): 时间范围天数（默认365天）
+        - **top_k** (可选): 返回结果数量（默认20）
+        - **retrieval_mode** (可选): 检索模式
+          * "rrf": RRF 融合（默认）
+          * "embedding": 纯向量检索
+          * "bm25": 纯关键词检索
+        - **data_source** (可选): 数据源
+          * "memcell": 从 MemCell.episode 检索（默认）
+          * "event_log": 从 event_log.atomic_fact 检索
+        
+        ## 返回格式：
+        ```json
+        {
+          "status": "ok",
+          "message": "检索成功，找到 10 条记忆",
+          "result": {
+            "memories": [...],
+            "count": 10,
+            "metadata": {
+              "retrieval_mode": "lightweight",
+              "emb_count": 15,
+              "bm25_count": 12,
+              "final_count": 10,
+              "total_latency_ms": 123.45
+            }
+          }
+        }
+        ```
+        """,
+    )
+    async def retrieve_lightweight(
+        self, fastapi_request: FastAPIRequest
+    ) -> Dict[str, Any]:
+        """
+        轻量级记忆检索（Embedding + BM25 + RRF 融合）
+        
+        Args:
+            fastapi_request: FastAPI 请求对象
+            
+        Returns:
+            Dict[str, Any]: 检索结果响应
+        """
+        try:
+            # 1. 解析请求参数
+            request_data = await fastapi_request.json()
+            query = request_data.get("query")
+            user_id = request_data.get("user_id")
+            group_id = request_data.get("group_id")
+            time_range_days = request_data.get("time_range_days", 365)
+            top_k = request_data.get("top_k", 20)
+            retrieval_mode = request_data.get("retrieval_mode", "rrf")
+            data_source = request_data.get("data_source", "memcell")
+            
+            if not query:
+                raise ValueError("缺少必需参数：query")
+            
+            logger.info(
+                f"收到 lightweight 检索请求: query={query}, group_id={group_id}, "
+                f"mode={retrieval_mode}, source={data_source}, top_k={top_k}"
+            )
+            
+            # 2. 调用 memory_manager 的 lightweight 检索
+            result = await self.memory_manager.retrieve_lightweight(
+                query=query,
+                user_id=user_id,
+                group_id=group_id,
+                time_range_days=time_range_days,
+                top_k=top_k,
+                retrieval_mode=retrieval_mode,
+                data_source=data_source,
+            )
+            
+            # 3. 返回统一格式
+            return {
+                "status": ErrorStatus.OK.value,
+                "message": f"检索成功，找到 {result['count']} 条记忆",
+                "result": result,
+            }
+        
+        except ValueError as e:
+            logger.error("V3 retrieve_lightweight 请求参数错误: %s", e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("V3 retrieve_lightweight 请求处理失败: %s", e, exc_info=True)
+            raise HTTPException(
+                status_code=500, detail="检索失败，请稍后重试"
             ) from e

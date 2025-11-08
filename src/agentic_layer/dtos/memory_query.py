@@ -60,6 +60,9 @@ class RetrieveMemRequest:
     end_time: Optional[str] = None
     query: Optional[str] = None  # retrieve的时候
     retrieve_method: RetrieveMethod = field(default=RetrieveMethod.KEYWORD)
+    memory_sub_type: Optional[str] = None  # 记忆子类型过滤：episode/semantic_memory/event_log
+    semantic_start_time: Optional[str] = None  # 语义记忆开始时间过滤
+    semantic_end_time: Optional[str] = None  # 语义记忆结束时间过滤
 
 
 @dataclass

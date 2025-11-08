@@ -58,10 +58,26 @@ class EpisodicMemoryCollection(MilvusCollectionWithSuffix):
                 name="event_type",
                 dtype=DataType.VARCHAR,
                 max_length=50,
-                description="事件类型",
+                description="事件类型（如 conversation, email 等）",
+            ),
+            FieldSchema(
+                name="memory_sub_type",
+                dtype=DataType.VARCHAR,
+                max_length=50,
+                description="记忆子类型（episode/semantic_memory/event_log 等）",
             ),
             FieldSchema(
                 name="timestamp", dtype=DataType.INT64, description="事件时间戳"
+            ),
+            FieldSchema(
+                name="start_time",
+                dtype=DataType.INT64,
+                description="语义记忆开始时间（仅 semantic_memory 类型有效）",
+            ),
+            FieldSchema(
+                name="end_time",
+                dtype=DataType.INT64,
+                description="语义记忆结束时间（仅 semantic_memory 类型有效）",
             ),
             FieldSchema(
                 name="episode",
@@ -76,10 +92,10 @@ class EpisodicMemoryCollection(MilvusCollectionWithSuffix):
                 description="搜索内容",
             ),
             FieldSchema(
-                name="detail",
+                name="metadata",
                 dtype=DataType.VARCHAR,
                 max_length=50000,
-                description="非检索用的详细信息JSON",
+                description="非检索用的详细信息JSON（元数据）",
             ),
             FieldSchema(
                 name="created_at", dtype=DataType.INT64, description="创建时间戳"
@@ -109,5 +125,8 @@ class EpisodicMemoryCollection(MilvusCollectionWithSuffix):
             field_name="user_id", index_type="AUTOINDEX"  # 自动选择最适合的索引类型
         ),
         IndexConfig(field_name="group_id", index_type="AUTOINDEX"),
+        IndexConfig(field_name="memory_sub_type", index_type="AUTOINDEX"),  # 记忆子类型索引
         IndexConfig(field_name="timestamp", index_type="AUTOINDEX"),
+        IndexConfig(field_name="start_time", index_type="AUTOINDEX"),  # 语义记忆开始时间索引
+        IndexConfig(field_name="end_time", index_type="AUTOINDEX"),  # 语义记忆结束时间索引
     ]

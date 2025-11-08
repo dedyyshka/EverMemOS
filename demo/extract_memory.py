@@ -332,11 +332,8 @@ async def extract_and_dump(
     # 创建 Profile Extractor
     profile_extractor = None
     if extract_config.enable_profile_extraction:
-        try:
-            profile_extractor = ProfileMemoryExtractor(llm_provider=provider)
-            print(f"[Extract] ✅ Profile 提取器已创建")
-        except Exception as e:
-            print(f"[Extract] ⚠️ Profile 提取器创建失败: {e}")
+        profile_extractor = ProfileMemoryExtractor(llm_provider=provider)
+        print(f"[Extract] ✅ Profile 提取器已创建")
 
     history: List[RawData] = []
     saved_files = 0

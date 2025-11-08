@@ -58,6 +58,7 @@ from infra_layer.adapters.out.search.milvus.converter.episodic_memory_milvus_con
 from infra_layer.adapters.out.search.repository.episodic_memory_milvus_repository import (
     EpisodicMemoryMilvusRepository,
 )
+from biz_layer.memcell_milvus_sync import MemCellMilvusSyncService
 
 logger = get_logger(__name__)
 
@@ -207,10 +208,6 @@ async def preprocess_conv_request(
                 ),
             )
 
-        conversation_data_repo = get_bean_by_type(ConversationDataRepository)
-        await conversation_data_repo.save_conversation_data(
-            request.new_raw_data_list, request.group_id
-        )
 
         # 3. 根据状态表决定如何读取历史数据
         history_raw_data_list = request.history_raw_data_list
@@ -320,13 +317,19 @@ async def preprocess_conv_request(
                 f"[mem_memorize] 从状态表重新读取: 历史数据 {len(history_data)} 条, 新数据 {len(new_data)} 条"
             )
 
-            # 重新分配数据
-            history_raw_data_list = history_data
-            new_raw_data_list = new_data
-
-            logger.info(
-                f"[mem_memorize] 重新分配: 历史数据 {len(history_raw_data_list)} 条, 新数据 {len(new_raw_data_list)} 条"
-            )
+            # 重新分配数据（如果 Redis 返回空，保留原始数据）
+            if history_data or new_data:
+                history_raw_data_list = history_data
+                new_raw_data_list = new_data
+                logger.info(
+                    f"[mem_memorize] 使用 Redis 数据: 历史 {len(history_raw_data_list)} 条, 新数据 {len(new_raw_data_list)} 条"
+                )
+            else:
+                history_raw_data_list = request.history_raw_data_list
+                new_raw_data_list = request.new_raw_data_list
+                logger.info(
+                    f"[mem_memorize] Redis 无数据，保留原始请求: 历史 {len(history_raw_data_list)} 条, 新数据 {len(new_raw_data_list)} 条"
+                )
 
         else:
             # 新对话，创建状态记录
@@ -466,34 +469,42 @@ async def save_memories(
         m for m in memory_list if m.memory_type == MemoryType.GROUP_PROFILE
     ]
 
-    # 保存情景记忆到EpisodicMemoryRawRepository
+    # 保存情景记忆到 EpisodicMemoryRawRepository（包括 ES/Milvus）
     for episode_mem in episode_memories:
-        try:
-            # 转换为EpisodicMemory文档格式
-            doc = _convert_episode_memory_to_doc(episode_mem, current_time)
-            doc = await episodic_memory_repo.append_episodic_memory(doc)
-            episode_mem.event_id = str(doc.event_id)
-            es_doc = EpisodicMemoryConverter.from_mongo(doc)
-            await es_doc.save()
-            milvus_entity = EpisodicMemoryMilvusConverter.from_mongo(doc)
-            # 当向量为空或不合法时，跳过插入Milvus，避免 'got nil' 错误
-            vector = (
-                milvus_entity.get("vector") if isinstance(milvus_entity, dict) else None
+        # 转换为EpisodicMemory文档格式
+        doc = _convert_episode_memory_to_doc(episode_mem, current_time)
+        doc = await episodic_memory_repo.append_episodic_memory(doc)
+        episode_mem.event_id = str(doc.event_id)
+        
+        # 保存到 ES
+        es_doc = EpisodicMemoryConverter.from_mongo(doc)
+        await es_doc.save()
+        
+        # 保存到 Milvus（添加缺失的字段）
+        milvus_entity = EpisodicMemoryMilvusConverter.from_mongo(doc)
+        vector = milvus_entity.get("vector") if isinstance(milvus_entity, dict) else None
+        
+        if not vector or (isinstance(vector, list) and len(vector) == 0):
+            logger.warning(
+                "[mem_memorize] 跳过写入Milvus：向量为空或缺失，event_id=%s",
+                getattr(doc, 'event_id', None),
             )
-            if not vector or (isinstance(vector, list) and len(vector) == 0):
-                logger.warning(
-                    "[mem_memorize] 跳过写入Milvus：向量为空或缺失，event_id=%s",
-                    getattr(doc, 'event_id', None),
-                )
+        else:
+            # ⚠️ 旧 converter 缺少字段，手动补全
+            milvus_entity["memory_sub_type"] = "episode"  # 标记为 episode 类型
+            milvus_entity["start_time"] = 0
+            milvus_entity["end_time"] = 0
+            # 字段名修正：旧 schema 是 detail → 新 schema 是 metadata
+            if "detail" in milvus_entity:
+                milvus_entity["metadata"] = milvus_entity.pop("detail")
             else:
-                await episodic_memory_milvus_repo.insert(milvus_entity)
-
-        except Exception as e:
-            logger.error(f"保存情景记忆最终失败: {e}")
-            import traceback
-
-            traceback.print_exc()
-            # 继续处理下一个记录，不中断整个流程
+                milvus_entity["metadata"] = "{}"
+            # 确保 search_content 字段存在
+            if "search_content" not in milvus_entity:
+                milvus_entity["search_content"] = milvus_entity.get("episode", "")[:500]
+            await episodic_memory_milvus_repo.insert(milvus_entity)
+        
+        logger.debug(f"✅ 保存 episode_memory: {episode_mem.event_id}")
 
     # 保存Profile记忆到CoreMemoryRawRepository
     for profile_mem in profile_memories:
@@ -582,7 +593,7 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
 
     # logger.info(f"[mem_memorize] request: {request}")
 
-    logger.info(f"[mem_memorize] memorize request: {request}")
+    # logger.info(f"[mem_memorize] memorize request: {request}")
     logger.info(f"[mem_memorize] request.current_time: {request.current_time}")
     # 获取当前时间，用于所有时间相关操作
     if request.current_time:
@@ -606,7 +617,8 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
         #         logger.warning(f"[mem_memorize] 获取分布式锁失败: {request.group_id}")
         now = time.time()
         logger.debug(
-            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}"
+            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}, "
+            f"semantic_extraction={request.enable_semantic_extraction}"
         )
         memcell_result = await memory_manager.extract_memcell(
             request.history_raw_data_list,
@@ -615,12 +627,16 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
             request.group_id,
             request.group_name,
             request.user_id_list,
+            enable_semantic_extraction=request.enable_semantic_extraction,
+            enable_event_log_extraction=request.enable_event_log_extraction,
         )
         logger.debug(f"[memorize memorize] 提取MemCell耗时: {time.time() - now}秒")
     else:
         now = time.time()
         logger.debug(
-            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}"
+            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}, "
+            f"semantic_extraction={request.enable_semantic_extraction}, "
+            f"event_log_extraction={request.enable_event_log_extraction}"
         )
         memcell_result = await memory_manager.extract_memcell(
             request.history_raw_data_list,
@@ -629,6 +645,8 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
             request.group_id,
             request.group_name,
             request.user_id_list,
+            enable_semantic_extraction=request.enable_semantic_extraction,
+            enable_event_log_extraction=request.enable_event_log_extraction,
         )
         logger.debug(f"[memorize memorize] 提取MemCell耗时: {time.time() - now}秒")
 
@@ -652,6 +670,24 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
 
     # MemCell存表
     memcell = await _save_memcell_to_database(memcell, current_time)
+
+    # 同步 MemCell 到 Milvus 和 ES（包括 episode/semantic_memories/event_log）
+    memcell_repo = get_bean_by_type(MemCellRawRepository)
+    doc_memcell = await memcell_repo.get_by_event_id(str(memcell.event_id))
+    
+    if doc_memcell:
+        sync_service = get_bean_by_type(MemCellMilvusSyncService)
+        sync_stats = await sync_service.sync_memcell(
+            doc_memcell, 
+            sync_to_es=True, 
+            sync_to_milvus=True
+        )
+        logger.info(
+            f"[mem_memorize] MemCell 同步到 Milvus/ES 完成: {memcell.event_id}, "
+            f"stats={sync_stats}"
+        )
+    else:
+        logger.warning(f"[mem_memorize] 无法加载 MemCell 进行同步: {memcell.event_id}")
 
     # print_memory = random.random() < 0.1
 

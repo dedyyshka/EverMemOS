@@ -28,15 +28,23 @@ class EventLog:
 
     time: str  # 事件发生时间，格式如 "March 10, 2024(Sunday) at 2:00 PM"
     atomic_fact: List[str]  # 原子事实列表，每个事实是一个完整的句子
+    fact_embeddings: List[List[float]] = None  # 每个 atomic_fact 对应的 embedding
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert EventLog to dictionary format."""
-        return {"time": self.time, "atomic_fact": self.atomic_fact}
+        result = {"time": self.time, "atomic_fact": self.atomic_fact}
+        if self.fact_embeddings:
+            result["fact_embeddings"] = self.fact_embeddings
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EventLog":
         """Create EventLog from dictionary."""
-        return cls(time=data.get("time", ""), atomic_fact=data.get("atomic_fact", []))
+        return cls(
+            time=data.get("time", ""), 
+            atomic_fact=data.get("atomic_fact", []),
+            fact_embeddings=data.get("fact_embeddings")
+        )
 
 
 class EventLogExtractor:
@@ -213,9 +221,20 @@ class EventLogExtractor:
             event_log = EventLog(
                 time=event_log_data["time"], atomic_fact=event_log_data["atomic_fact"]
             )
+            
+            # 7. 为每个 atomic_fact 生成 embedding
+            from agentic_layer.vectorize_service import get_vectorize_service
+            vectorize_service = get_vectorize_service()
+            
+            fact_embeddings = []
+            for fact in event_log.atomic_fact:
+                fact_emb = await vectorize_service.get_embedding(fact)
+                fact_embeddings.append(fact_emb.tolist() if hasattr(fact_emb, 'tolist') else fact_emb)
+            
+            event_log.fact_embeddings = fact_embeddings
 
             logger.debug(
-                f"成功提取event log，包含 {len(event_log.atomic_fact)} 个原子事实"
+                f"成功提取event log，包含 {len(event_log.atomic_fact)} 个原子事实（已生成 embedding）"
             )
             return event_log
 

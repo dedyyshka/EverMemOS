@@ -3,15 +3,17 @@ from __future__ import annotations
 from typing import Any, List
 import logging
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import jieba
+import numpy as np
+import time
 from typing import Dict, Any
+from dataclasses import dataclass
 
 from memory_layer.types import Memory
 from biz_layer.mem_memorize import memorize
 from memory_layer.memory_manager import MemorizeRequest
 from .fetch_mem_service import get_fetch_memory_service
-# from .retrieve_mem_service import get_retrieve_mem_service
 from .dtos.memory_query import (
     FetchMemRequest,
     FetchMemResponse,
@@ -25,7 +27,7 @@ from infra_layer.adapters.out.search.repository.episodic_memory_es_repository im
 )
 from core.observation.tracing.decorators import trace_logger
 from core.nlp.stopwords_utils import filter_stopwords
-from common_utils.datetime_utils import from_iso_format
+from common_utils.datetime_utils import from_iso_format, get_now_with_timezone
 from infra_layer.adapters.out.persistence.repository.memcell_raw_repository import (
     MemCellRawRepository,
 )
@@ -37,8 +39,23 @@ from infra_layer.adapters.out.search.repository.episodic_memory_milvus_repositor
 )
 from .vectorize_service import get_vectorize_service
 from .rerank_service import get_rerank_service
+from .retrieval_utils import lightweight_retrieval, build_bm25_index, search_with_bm25
+import os
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EventLogCandidate:
+    """Event Log 候选对象（用于从 atomic_fact 检索）"""
+    event_id: str
+    user_id: str
+    group_id: str
+    timestamp: datetime
+    episode: str  # atomic_fact 内容
+    summary: str
+    subject: str
+    extend: dict  # 包含 embedding
 
 
 class MemoryManager:
@@ -301,10 +318,11 @@ class MemoryManager:
             if end_time is not None:
                 date_range["lte"] = end_time
 
-            # 调用 multi_search 方法
+            # 调用 multi_search 方法，支持按 memory_sub_type 过滤
             search_results = await es_repo.multi_search(
                 query=query_words,
                 user_id=user_id,
+                event_type=retrieve_mem_request.memory_sub_type,  # 按记忆子类型过滤
                 size=top_k,
                 from_=0,
                 date_range=date_range,
@@ -382,12 +400,23 @@ class MemoryManager:
                 else:
                     end_time_dt = end_time
 
+            # 处理语义记忆时间范围
+            semantic_start_dt = None
+            semantic_end_dt = None
+            if retrieve_mem_request.semantic_start_time:
+                semantic_start_dt = datetime.strptime(retrieve_mem_request.semantic_start_time, "%Y-%m-%d")
+            if retrieve_mem_request.semantic_end_time:
+                semantic_end_dt = datetime.strptime(retrieve_mem_request.semantic_end_time, "%Y-%m-%d")
+
             # 调用 Milvus 的向量搜索
             search_results = await milvus_repo.vector_search(
                 query_vector=query_vector_list,
                 user_id=user_id,
+                memory_sub_type=retrieve_mem_request.memory_sub_type,  # 支持按记忆子类型过滤
                 start_time=start_time_dt,
                 end_time=end_time_dt,
+                semantic_start_time=semantic_start_dt,  # 语义记忆时间过滤
+                semantic_end_time=semantic_end_dt,
                 limit=top_k,
                 score_threshold=0.0,
             )
@@ -506,6 +535,7 @@ class MemoryManager:
             search_results = await milvus_repo.vector_search(
                 query_vector=query_vector_list,
                 user_id=user_id,
+                memory_sub_type=retrieve_mem_request.memory_sub_type,  # 支持按记忆子类型过滤
                 start_time=start_time_dt,
                 end_time=end_time_dt,
                 limit=top_k,
@@ -973,3 +1003,296 @@ class MemoryManager:
             len(group_data['memories']) for group_data in memories_by_group.values()
         )
         return memories, scores, importance_scores, original_data, total_count
+    
+    # --------- Lightweight 检索（Embedding + BM25 + RRF）---------
+    @trace_logger(operation_name="agentic_layer 轻量级检索")
+    async def retrieve_lightweight(
+        self,
+        query: str,
+        user_id: str = None,
+        group_id: str = None,
+        time_range_days: int = 365,
+        top_k: int = 20,
+        retrieval_mode: str = "rrf",  # "embedding" | "bm25" | "rrf"
+        data_source: str = "memcell",  # "memcell" | "event_log"
+    ) -> Dict[str, Any]:
+        """
+        轻量级记忆检索（支持多种检索模式和数据源）
+        
+        Args:
+            query: 用户查询
+            user_id: 用户ID（用于过滤）
+            group_id: 群组ID（用于过滤）
+            time_range_days: 时间范围天数
+            top_k: 返回结果数量
+            retrieval_mode: 检索模式
+                - "embedding": 纯向量检索
+                - "bm25": 纯关键词检索
+                - "rrf": RRF 融合（默认）
+            data_source: 数据源
+                - "memcell": 从 MemCell.episode 检索（默认）
+                - "event_log": 从 event_log.atomic_fact 检索
+            
+        Returns:
+            Dict 包含 memories, metadata
+        """
+        memcell_repo = get_bean_by_type(MemCellRawRepository)
+        
+        now = get_now_with_timezone()
+        start_date = now - timedelta(days=time_range_days)
+        
+        # 1. 查询 MemCell 候选
+        if group_id:
+            memcells = await memcell_repo.find_by_group_id(group_id, limit=1000)
+            memcells = [
+                m for m in memcells
+                if m.timestamp and start_date <= m.timestamp <= now
+            ]
+        elif user_id:
+            memcells = await memcell_repo.find_by_user_and_time_range(
+                user_id=user_id,
+                start_time=start_date,
+                end_time=now,
+                limit=1000,
+            )
+        else:
+            memcells = await memcell_repo.find_by_time_range(
+                start_time=start_date,
+                end_time=now,
+                limit=1000,
+            )
+        
+        if not memcells:
+            return {
+                "memories": [],
+                "count": 0,
+                "metadata": {
+                    "retrieval_mode": retrieval_mode,
+                    "data_source": data_source,
+                    "total_latency_ms": 0.0
+                }
+            }
+        
+        # 2. 根据 data_source 准备候选数据
+        if data_source == "event_log":
+            # 从 event_log.atomic_fact 构建候选
+            candidates = await self._prepare_event_log_candidates(memcells)
+        else:
+            # 使用 MemCell.episode（默认）
+            candidates = memcells
+        
+        if not candidates:
+            return {
+                "memories": [],
+                "count": 0,
+                "metadata": {
+                    "retrieval_mode": retrieval_mode,
+                    "data_source": data_source,
+                    "total_latency_ms": 0.0
+                }
+            }
+        
+        # 3. 根据 retrieval_mode 执行检索
+        # 注意：对于 event_log，需要更多候选数以确保聚合后有足够的 MemCell
+        if data_source == "event_log":
+            # Event Log 模式：检索更多候选（因为会聚合到 MemCell）
+            # 假设每个 MemCell 平均有 5-10 个 atomic_fact，
+            # 要得到 top_k 个 MemCell，需要检索 top_k * 10 个 atomic_fact
+            retrieval_top_k = max(top_k * 20, 100)  # 至少 100 个候选
+        else:
+            # MemCell 模式：直接返回，不需要额外扩展
+            retrieval_top_k = top_k
+        
+        if retrieval_mode == "embedding":
+            # 纯向量检索
+            results_tuples, metadata = await self._embedding_only_retrieval(
+                query, candidates, retrieval_top_k
+            )
+        elif retrieval_mode == "bm25":
+            # 纯 BM25 检索
+            results_tuples, metadata = await self._bm25_only_retrieval(
+                query, candidates, retrieval_top_k
+            )
+        else:
+            # RRF 融合（默认）
+            results_tuples, metadata = await lightweight_retrieval(
+                query=query,
+                candidates=candidates,
+                emb_top_n=max(retrieval_top_k * 2, 200),  # Embedding 候选数
+                bm25_top_n=max(retrieval_top_k * 2, 200),  # BM25 候选数
+                final_top_n=retrieval_top_k  # 最终返回数
+            )
+        
+        metadata["retrieval_mode"] = retrieval_mode
+        metadata["data_source"] = data_source
+        
+        # 4. 转换为返回格式
+        if data_source == "event_log":
+            # Event Log 检索：聚合到原始 Episode，取最高分
+            memories = self._aggregate_event_log_results(results_tuples)
+            # 聚合后截断为 top_k
+            memories = memories[:top_k]
+        else:
+            # MemCell 检索：直接返回
+            memories = []
+            for memcell, score in results_tuples:
+                memories.append({
+                    "event_id": str(memcell.event_id),
+                    "user_id": memcell.user_id,
+                    "group_id": getattr(memcell, 'group_id', None),
+                    "timestamp": memcell.timestamp.isoformat() if hasattr(memcell.timestamp, 'isoformat') else str(memcell.timestamp),
+                    "episode": memcell.episode,
+                    "summary": getattr(memcell, 'summary', None),
+                    "subject": getattr(memcell, 'subject', None),
+                    "score": float(score),
+                })
+        
+        return {
+            "memories": memories,
+            "count": len(memories),
+            "metadata": metadata,
+        }
+    
+    def _aggregate_event_log_results(self, results_tuples):
+        """聚合 Event Log 检索结果到原 Episode
+        
+        每个 episode 的分数 = 其所有 atomic_fact 中的最高分
+        """
+        episode_scores = {}  # {memcell_event_id: (memcell, max_score)}
+        
+        for candidate, score in results_tuples:
+            # 获取原始 MemCell
+            parent_memcell = candidate.extend.get('parent_memcell')
+            if not parent_memcell:
+                continue
+            
+            memcell_id = str(parent_memcell.event_id)
+            
+            # 保留最高分
+            if memcell_id not in episode_scores or score > episode_scores[memcell_id][1]:
+                episode_scores[memcell_id] = (parent_memcell, score)
+        
+        # 转换为列表并按分数排序
+        results = sorted(
+            [(memcell, score) for memcell, score in episode_scores.values()],
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        # 格式化返回
+        memories = []
+        for memcell, score in results:
+            memories.append({
+                "event_id": str(memcell.event_id),
+                "user_id": memcell.user_id,
+                "group_id": getattr(memcell, 'group_id', None),
+                "timestamp": memcell.timestamp.isoformat() if hasattr(memcell.timestamp, 'isoformat') else str(memcell.timestamp),
+                "episode": memcell.episode,
+                "summary": getattr(memcell, 'summary', None),
+                "subject": getattr(memcell, 'subject', None),
+                "score": float(score),
+            })
+        
+        return memories
+    
+    async def _prepare_event_log_candidates(self, memcells):
+        """从 MemCell 中提取 event_log.atomic_fact 作为候选
+        
+        为每个 atomic_fact 创建候选对象，但保留原始 MemCell 引用
+        """
+        candidates = []
+        for memcell in memcells:
+            if not hasattr(memcell, 'event_log') or not memcell.event_log:
+                continue
+            
+            event_log = memcell.event_log
+            if isinstance(event_log, dict):
+                atomic_facts = event_log.get('atomic_fact', [])
+                fact_embeddings = event_log.get('fact_embeddings', [])
+            else:
+                atomic_facts = getattr(event_log, 'atomic_fact', [])
+                fact_embeddings = getattr(event_log, 'fact_embeddings', [])
+            
+            # 为每个 atomic_fact 创建候选对象
+            for i, fact in enumerate(atomic_facts):
+                embedding = fact_embeddings[i] if i < len(fact_embeddings) else None
+                if not embedding:
+                    continue
+                
+                candidate = EventLogCandidate(
+                    event_id=f"{memcell.event_id}_eventlog_{i}",
+                    user_id=memcell.user_id,
+                    group_id=getattr(memcell, 'group_id', None),
+                    timestamp=memcell.timestamp,
+                    episode=fact,  # atomic_fact 作为 episode（用于检索）
+                    summary=fact[:100],
+                    subject=getattr(memcell, 'subject', None),
+                    extend={
+                        'embedding': embedding,
+                        'parent_memcell': memcell,  # ← 保留原 MemCell 引用
+                        'fact_index': i,
+                    }
+                )
+                candidates.append(candidate)
+        
+        return candidates
+    
+    async def _embedding_only_retrieval(self, query, candidates, top_k):
+        """纯 Embedding 检索"""
+        start_time = time.time()
+        
+        vectorize_service = get_vectorize_service()
+        query_vec = await vectorize_service.get_embedding(query)
+        query_norm = np.linalg.norm(query_vec)
+        
+        scores = []
+        for mem in candidates:
+            try:
+                doc_vec = np.array(mem.extend.get("embedding", []))
+                if len(doc_vec) > 0:
+                    doc_norm = np.linalg.norm(doc_vec)
+                    if doc_norm > 0:
+                        sim = np.dot(query_vec, doc_vec) / (query_norm * doc_norm)
+                        scores.append((mem, float(sim)))
+            except:
+                continue
+        
+        results = sorted(scores, key=lambda x: x[1], reverse=True)[:top_k]
+        
+        metadata = {
+            "retrieval_mode": "embedding",
+            "emb_count": len(results),
+            "final_count": len(results),
+            "total_latency_ms": (time.time() - start_time) * 1000
+        }
+        
+        return results, metadata
+    
+    async def _bm25_only_retrieval(self, query, candidates, top_k):
+        """纯 BM25 检索"""
+        start_time = time.time()
+        
+        # 构建 BM25 索引
+        bm25, tokenized_docs, stemmer, stop_words = build_bm25_index(candidates)
+        
+        # BM25 检索
+        if bm25 is None:
+            return [], {
+                "retrieval_mode": "bm25",
+                "bm25_count": 0,
+                "final_count": 0,
+                "total_latency_ms": (time.time() - start_time) * 1000
+            }
+        
+        results = await search_with_bm25(
+            query, bm25, candidates, stemmer, stop_words, top_k=top_k
+        )
+        
+        metadata = {
+            "retrieval_mode": "bm25",
+            "bm25_count": len(results),
+            "final_count": len(results),
+            "total_latency_ms": (time.time() - start_time) * 1000
+        }
+        
+        return results, metadata

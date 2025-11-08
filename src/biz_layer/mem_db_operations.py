@@ -806,6 +806,32 @@ def _convert_memcell_to_document(
         except ImportError as e:
             logger.debug(f"导入MemCell扩展类失败: {e}")
 
+        # 准备 semantic_memories（转为字典列表）
+        semantic_memories_list = None
+        if hasattr(memcell, 'semantic_memories') and memcell.semantic_memories:
+            semantic_memories_list = [
+                sm.to_dict() if hasattr(sm, 'to_dict') else (sm if isinstance(sm, dict) else None)
+                for sm in memcell.semantic_memories
+            ]
+            semantic_memories_list = [sm for sm in semantic_memories_list if sm is not None]
+        
+        # 准备 event_log（转为字典）
+        event_log_dict = None
+        if hasattr(memcell, 'event_log') and memcell.event_log:
+            if hasattr(memcell.event_log, 'to_dict'):
+                event_log_dict = memcell.event_log.to_dict()
+            elif isinstance(memcell.event_log, dict):
+                event_log_dict = memcell.event_log
+        
+        # 准备 extend 字段（包含 embedding 等扩展信息）
+        extend_dict = {}
+        if hasattr(memcell, 'extend') and memcell.extend:
+            extend_dict = memcell.extend if isinstance(memcell.extend, dict) else {}
+        
+        # 添加 embedding 到 extend（如果有）
+        if hasattr(memcell, 'embedding') and memcell.embedding:
+            extend_dict['embedding'] = memcell.embedding
+        
         # 创建文档模型 - 直接传入timezone-aware的datetime对象而不是字符串
         # 这样可以避免基类的datetime验证器触发无限递归
         doc_memcell = DocMemCell(
@@ -821,6 +847,9 @@ def _convert_memcell_to_document(
             keywords=memcell.keywords,
             linked_entities=memcell.linked_entities,
             episode=memcell.episode,
+            semantic_memories=semantic_memories_list,  # ✅ 添加语义记忆
+            event_log=event_log_dict,  # ✅ 添加事件日志
+            extend=extend_dict if extend_dict else None,  # ✅ 添加 extend（包含 embedding）
             # EmailMemCell 扩展字段
             clips=email_fields.get("clips") or linkdoc_fields.get("clips"),
             email_address=email_fields.get("email_address"),
@@ -863,10 +892,11 @@ async def _get_raw_data_by_time_range(
     """
     根据时间范围获取RawData,前闭后开
     """
-    repository = get_bean_by_type(ConversationDataRepository)
-    return await repository.get_conversation_data(
-        group_id=group_id, start_time=start_time, end_time=end_time, limit=limit
-    )
+    return []
+    # repository = get_bean_by_type(ConversationDataRepository)
+    # return await repository.get_conversation_data(
+    #     group_id=group_id, start_time=start_time, end_time=end_time, limit=limit
+    # )
     # imsgs = await repository.get_by_room_id(room_id=group_id, create_time_range=(start_time, end_time - timedelta(milliseconds=1)), limit=limit)
     # imsgs = list(filter(lambda x: x.msgType <= 6, imsgs))
     # return [_convert_imessage_to_raw_data(imessage) for imessage in imsgs]
