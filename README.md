@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>
-  <img src="figs/logo.png" alt="EverMemOS Logo" height="36" style="vertical-align: middle; margin-right: 12px;"/>
+  <img src="figs/logo.png" alt="EverMemOS Logo" height="40" style="vertical-align: middle; margin-right: 12px;"/>
   EverMemOS
 </h1>
 
@@ -63,31 +63,38 @@ Build AI memory that never forgets, making every conversation built on previous 
 
 ## 💡 Unique Advantages
 
-### 🔗 Coherent Narrative  
-Beyond "fragments," connecting "stories": Automatically linking conversation pieces to build clear thematic context, enabling AI to "truly understand."
-
-> When facing multi-threaded conversations, it naturally distinguishes between "Project A progress discussion" and "Team B strategy planning," maintaining coherent contextual logic within each theme.  
-> From scattered phrases to complete narratives, AI no longer just "understands one sentence" but "understands the whole story."
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h3>🔗 Coherent Narrative</h3>
+      <p><strong>Beyond "fragments," connecting "stories"</strong>: Automatically linking conversation pieces to build clear thematic context, enabling AI to "truly understand."</p>
+      <blockquote>
+        When facing multi-threaded conversations, it naturally distinguishes between "Project A progress discussion" and "Team B strategy planning," maintaining coherent contextual logic within each theme.<br/><br/>
+        From scattered phrases to complete narratives, AI no longer just "understands one sentence" but "understands the whole story."
+      </blockquote>
+    </td>
+    <td width="33%" valign="top">
+      <h3>🧠 Evidence-Based Perception</h3>
+      <p><strong>Beyond "retrieval," intelligent "perception"</strong>: Proactively capturing deep connections between memories and tasks, enabling AI to "think thoroughly" at critical moments.</p>
+      <blockquote>
+        Imagine: When a user asks for "food recommendations," the AI proactively recalls "you had dental surgery two days ago" as a key piece of information, automatically adjusting suggestions to avoid unsuitable options.<br/><br/>
+        This is <strong>Contextual Awareness</strong> — enabling AI thinking to be truly built on understanding rather than isolated responses.
+      </blockquote>
+    </td>
+    <td width="33%" valign="top">
+      <h3>💾 Living Profiles</h3>
+      <p><strong>Beyond "records," dynamic "growth"</strong>: Real-time user profile updates that get to know you better with each conversation, enabling AI to "recognize you authentically."</p>
+      <blockquote>
+        Every interaction subtly updates the AI's understanding of you — preferences, style, and focus points all continuously evolve.<br/><br/>
+        As interactions deepen, it doesn't just "remember what you said," but is "learning who you are."
+      </blockquote>
+    </td>
+  </tr>
+</table>
 
 ---
 
-### 🧠 Evidence-Based Perception  
-Beyond "retrieval," intelligent "perception": Proactively capturing deep connections between memories and tasks, enabling AI to "think thoroughly" at critical moments.
-
-> Imagine: When a user asks for "food recommendations," the AI proactively recalls "you had dental surgery two days ago" as a key piece of information, automatically adjusting suggestions to avoid unsuitable options.  
-> This is **Contextual Awareness** — enabling AI thinking to be truly built on understanding rather than isolated responses.
-
----
-
-### 💾 Living Profiles  
-Beyond "records," dynamic "growth": Real-time user profile updates that get to know you better with each conversation, enabling AI to "recognize you authentically."
-
-> Every interaction subtly updates the AI's understanding of you — preferences, style, and focus points all continuously evolve.  
-> As interactions deepen, it doesn't just "remember what you said," but is "learning who you are."
-
----
-
-<h2>📑 Table of Contents</h2>
+## 📑 Table of Contents
 
 
 <div align="center">
@@ -440,6 +447,9 @@ uv run python src/bootstrap.py src/run.py --port 8001
 
 Use V3 API to store single message memory:
 
+<details>
+<summary>Example: Store single message memory</summary>
+
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/memorize \
   -H "Content-Type: application/json" \
@@ -454,6 +464,8 @@ curl -X POST http://localhost:8001/api/v3/agentic/memorize \
     "scene": "group_chat"
   }'
 ```
+
+</details>
 
 **API Features**:
 
@@ -484,6 +496,9 @@ EverMemOS provides two retrieval modes: **Lightweight** (fast) and **Agentic** (
 
 **Example 1: Personal Memory**
 
+<details>
+<summary>Example: Personal Memory Retrieval</summary>
+
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   -H "Content-Type: application/json" \
@@ -496,7 +511,12 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   }'
 ```
 
+</details>
+
 **Example 2: Group Memory**
+
+<details>
+<summary>Example: Group Memory Retrieval</summary>
 
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
@@ -510,11 +530,16 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   }'
 ```
 
+</details>
+
 ---
 
 **Agentic Retrieval**
 
 LLM-guided multi-round intelligent search with automatic query refinement and result reranking.
+
+<details>
+<summary>Example: Agentic Retrieval</summary>
 
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_agentic \
@@ -530,6 +555,8 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_agentic \
     }
   }'
 ```
+
+</details>
 
 > ⚠️ Agentic retrieval requires LLM API key and takes longer, but provides higher quality results for queries requiring multiple memory sources and complex logic.
 
@@ -659,11 +686,13 @@ We are building a vibrant open-source community!
 
 ### Contact
 
-- **GitHub Issues**: [Submit issues and suggestions](https://github.com/EverMind-AI/EverMemOS/issues)
-- **Discussions**: [Join discussions](https://github.com/EverMind-AI/EverMemOS/discussions)
-- **Email**: evermind@shanda.com
-- **Reddit**: [r/EverMindAI](https://www.reddit.com/r/EverMindAI/)
-- **X**: [@EverMindAI](https://x.com/EverMindAI)
+<p>
+  <a href="https://github.com/EverMind-AI/EverMemOS/issues"><img alt="GitHub Issues" src="https://img.shields.io/badge/GitHub-Issues-blue?style=flat-square&logo=github"></a>
+  <a href="https://github.com/EverMind-AI/EverMemOS/discussions"><img alt="GitHub Discussions" src="https://img.shields.io/badge/GitHub-Discussions-blue?style=flat-square&logo=github"></a>
+  <a href="mailto:evermind@shanda.com"><img alt="Email" src="https://img.shields.io/badge/Email-Contact_Us-blue?style=flat-square&logo=gmail"></a>
+  <a href="https://www.reddit.com/r/EverMindAI/"><img alt="Reddit" src="https://img.shields.io/badge/Reddit-r/EverMindAI-orange?style=flat-square&logo=reddit"></a>
+  <a href="https://x.com/EverMindAI"><img alt="X" src="https://img.shields.io/badge/X-@EverMindAI-black?style=flat-square&logo=x"></a>
+</p>
 
 ### Contributors
 

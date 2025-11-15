@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>
-  <img src="figs/logo.png" alt="EverMemOS Logo" height="36" style="vertical-align: middle; margin-right: 12px;"/>
+  <img src="figs/logo.png" alt="EverMemOS Logo" height="40" style="vertical-align: middle; margin-right: 12px;"/>
   EverMemOS
 </h1>
 
@@ -63,27 +63,34 @@
 
 ## 💡 独特优势
 
-### 🔗 脉络有绪  
-不止“碎片”，串联“故事”：自动串联对话片段，构建清晰主题脉络，让 AI “看得明白”。  
-
-> 面对多线程对话时，它能自然地区分“A 项目的进度讨论”和“B 团队的策略规划”，并在每个主题中维持连贯的上下文逻辑。  
-> 从零散片语到完整叙事，AI 不再“听懂一句”，而是“听懂整件事”。
-
----
-
-### 🧠 感知有据  
-不止“检索”，智能“感知”：主动捕捉记忆与任务间的深层关联，让 AI 在关键时刻“想得周到”。  
-
-> 想象一下：当用户请求“推荐食物”时，AI 会主动联想到“你两天前刚做了牙科手术”这一关键信息，自动调整建议，避开不适宜的选项。  
-> 这是一种 **上下文自觉 (Contextual Awareness)** —— 让 AI 的思考真正建立在理解之上，而非孤立回应。
-
----
-
-### 💾 画像有灵  
-不止“档案”，动态“成长”：实时更新用户画像，越聊越懂你，让 AI “认得真切”。  
-
-> 你的每一次交流都会悄然更新 AI 对你的理解——偏好、风格、关注点都在持续演化。  
-> 随着互动的深入，它不只是“记住你说过什么”，而是在“学习你是谁”。
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h3>🔗 脉络有绪</h3>
+      <p><strong>不止“碎片”，串联“故事”</strong>：自动串联对话片段，构建清晰主题脉络，让 AI “看得明白”。</p>
+      <blockquote>
+        面对多线程对话时，它能自然地区分“A 项目的进度讨论”和“B 团队的策略规划”，并在每个主题中维持连贯的上下文逻辑。<br/><br/>
+        从零散片语到完整叙事，AI 不再“听懂一句”，而是“听懂整件事”。
+      </blockquote>
+    </td>
+    <td width="33%" valign="top">
+      <h3>🧠 感知有据</h3>
+      <p><strong>不止“检索”，智能“感知”</strong>：主动捕捉记忆与任务间的深层关联，让 AI 在关键时刻“想得周到”。</p>
+      <blockquote>
+        想象一下：当用户请求“推荐食物”时，AI 会主动联想到“你两天前刚做了牙科手术”这一关键信息，自动调整建议，避开不适宜的选项。<br/><br/>
+        这是一种 <strong>上下文自觉 (Contextual Awareness)</strong> —— 让 AI 的思考真正建立在理解之上，而非孤立回应。
+      </blockquote>
+    </td>
+    <td width="33%" valign="top">
+      <h3>💾 画像有灵</h3>
+      <p><strong>不止“档案”，动态“成长”</strong>：实时更新用户画像，越聊越懂你，让 AI “认得真切”。</p>
+      <blockquote>
+        你的每一次交流都会悄然更新 AI 对你的理解——偏好、风格、关注点都在持续演化。<br/><br/>
+        随着互动的深入，它不只是“记住你说过什么”，而是在“学习你是谁”。
+      </blockquote>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -442,6 +449,9 @@ uv run python src/bootstrap.py src/run.py --port 8001
 
 使用 V3 API 存储单条消息记忆：
 
+<details>
+<summary>示例：存储单条消息</summary>
+
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/memorize \
   -H "Content-Type: application/json" \
@@ -456,6 +466,8 @@ curl -X POST http://localhost:8001/api/v3/agentic/memorize \
     "scene": "group_chat"
   }'
 ```
+
+</details>
 > ℹ️ `scene` 为必填字段，仅支持 `assistant` 或 `group_chat`，用于指定记忆提取策略。
 **API 功能说明**：
 
@@ -486,6 +498,9 @@ EverMemOS 提供两种检索模式：**轻量级检索**（快速）和 **Agenti
 
 **示例 1：个人记忆**
 
+<details>
+<summary>示例：个人记忆检索</summary>
+
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   -H "Content-Type: application/json" \
@@ -498,7 +513,12 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   }'
 ```
 
+</details>
+
 **示例 2：群组记忆**
+
+<details>
+<summary>示例：群组记忆检索</summary>
 
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
@@ -512,11 +532,16 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_lightweight \
   }'
 ```
 
+</details>
+
 ---
 
 **Agentic 检索**
 
 使用 LLM 引导的多轮智能搜索，自动进行查询改进和结果重排序。
+
+<details>
+<summary>示例：Agentic 检索</summary>
 
 ```bash
 curl -X POST http://localhost:8001/api/v3/agentic/retrieve_agentic \
@@ -532,6 +557,8 @@ curl -X POST http://localhost:8001/api/v3/agentic/retrieve_agentic \
     }
   }'
 ```
+
+</details>
 
 > ⚠️ Agentic 检索需要 LLM API Key，耗时较长，但能为需要多记忆来源、复杂逻辑查询提供更高质量的结果。
 
@@ -658,11 +685,13 @@ EverMemOS 采用分层架构设计，主要包括：
 
 ### 联系方式
 
-- **GitHub Issues**: [提交问题和建议](https://github.com/EverMind-AI/EverMemOS/issues)
-- **讨论区**: [参与讨论](https://github.com/EverMind-AI/EverMemOS/discussions)
-- **邮箱**: evermind@shanda.com
-- **Reddit**: [r/EverMindAI](https://www.reddit.com/r/EverMindAI/)
-- **X**: [@EverMindAI](https://x.com/EverMindAI)
+<p>
+  <a href="https://github.com/EverMind-AI/EverMemOS/issues"><img alt="GitHub Issues" src="https://img.shields.io/badge/GitHub-Issues-blue?style=flat-square&logo=github"></a>
+  <a href="https://github.com/EverMind-AI/EverMemOS/discussions"><img alt="GitHub Discussions" src="https://img.shields.io/badge/GitHub-Discussions-blue?style=flat-square&logo=github"></a>
+  <a href="mailto:evermind@shanda.com"><img alt="Email" src="https://img.shields.io/badge/Email-联系我们-blue?style=flat-square&logo=gmail"></a>
+  <a href="https://www.reddit.com/r/EverMindAI/"><img alt="Reddit" src="https://img.shields.io/badge/Reddit-r/EverMindAI-orange?style=flat-square&logo=reddit"></a>
+  <a href="https://x.com/EverMindAI"><img alt="X" src="https://img.shields.io/badge/X-@EverMindAI-black?style=flat-square&logo=x"></a>
+</p>
 
 ### 贡献者
 
