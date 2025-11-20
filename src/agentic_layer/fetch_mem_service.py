@@ -337,7 +337,6 @@ class FetchMemoryServiceImpl(FetchMemoryServiceInterface):
                 else ""
             ),
             key_events=episodic_memory.keywords or [],
-            emotions={},
             created_at=episodic_memory.created_at,
             updated_at=episodic_memory.updated_at,
             metadata=Metadata(

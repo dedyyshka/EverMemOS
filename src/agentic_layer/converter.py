@@ -47,12 +47,21 @@ def convert_dict_to_fetch_mem_request(data: Dict[str, Any]) -> FetchMemRequest:
         # 转换 memory_type，如果未提供则使用默认值
         memory_type = MemoryType(data.get("memory_type", "multiple"))
         logger.debug(f"version_range: {data.get('version_range', None)}")
+
+        # 转换 limit 和 offset 为整数类型（从 query_params 获取的都是字符串）
+        limit = data.get("limit", 10)
+        offset = data.get("offset", 0)
+        if isinstance(limit, str):
+            limit = int(limit)
+        if isinstance(offset, str):
+            offset = int(offset)
+
         # 构建 FetchMemRequest 对象
         return FetchMemRequest(
             user_id=data["user_id"],
             memory_type=memory_type,
-            limit=data.get("limit", 10),
-            offset=data.get("offset", 0),
+            limit=limit,
+            offset=offset,
             filters=data.get("filters", {}),
             sort_by=data.get("sort_by"),
             sort_order=data.get("sort_order", "desc"),
@@ -97,17 +106,32 @@ def convert_dict_to_retrieve_mem_request(
             )
             retrieve_method = RetrieveMethod.KEYWORD
 
+        # 转换 top_k 为整数类型（从 query_params 获取的都是字符串）
+        top_k = data.get("top_k", 10)
+        if isinstance(top_k, str):
+            top_k = int(top_k)
+
+        # 转换 include_metadata 为布尔类型
+        include_metadata = data.get("include_metadata", True)
+        if isinstance(include_metadata, str):
+            include_metadata = include_metadata.lower() in ("true", "1", "yes")
+
+        # 转换 radius 为浮点类型（如果存在）
+        radius = data.get("radius", None)
+        if radius is not None and isinstance(radius, str):
+            radius = float(radius)
+
         return RetrieveMemRequest(
             retrieve_method=retrieve_method,
             user_id=data["user_id"],
             query=query or data.get("query", None),
             memory_types=data.get("memory_types", []),
-            top_k=data.get("top_k", 10),
+            top_k=top_k,
             filters=data.get("filters", {}),
-            include_metadata=data.get("include_metadata", True),
+            include_metadata=include_metadata,
             start_time=data.get("start_time", None),
             end_time=data.get("end_time", None),
-            radius=data.get("radius", None),  # COSINE 相似度阈值
+            radius=radius,  # COSINE 相似度阈值
         )
     except Exception as e:
         raise ValueError(f"RetrieveMemRequest 转换失败: {e}")

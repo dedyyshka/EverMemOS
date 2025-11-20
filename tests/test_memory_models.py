@@ -278,7 +278,6 @@ class TestEpisodicMemoryModel:
             location="会议室A",
             start_time=now,
             key_events=["讨论需求", "分配任务"],
-            emotions={"积极": 0.8},
         )
 
         assert model.id == "episode_001"
