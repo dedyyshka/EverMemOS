@@ -29,6 +29,25 @@ class SemanticMemoryMilvusConverter(BaseMilvusConverter[SemanticMemoryCollection
     """
 
     @classmethod
+    def _parse_time_field(cls, time_value, field_name: str, doc_id) -> int:
+        """解析时间字段，失败时返回 0 并记录警告"""
+        if not time_value:
+            return 0
+        
+        try:
+            if isinstance(time_value, datetime):
+                return int(time_value.timestamp())
+            elif isinstance(time_value, str):
+                dt = datetime.fromisoformat(time_value.replace('Z', '+00:00'))
+                return int(dt.timestamp())
+            elif isinstance(time_value, (int, float)):
+                return int(time_value)
+        except Exception as e:
+            logger.warning(f"解析 {field_name} 失败 (doc_id={doc_id}): {time_value}, 错误: {e}")
+        
+        return 0
+
+    @classmethod
     def from_mongo(cls, source_doc: MongoSemanticMemoryRecord) -> Dict[str, Any]:
         """
         从 MongoDB 语义记忆文档转换为 Milvus Collection 实体
@@ -44,22 +63,8 @@ class SemanticMemoryMilvusConverter(BaseMilvusConverter[SemanticMemoryCollection
 
         try:
             # 解析时间字段
-            start_time = 0
-            end_time = 0
-            
-            if source_doc.start_time:
-                if isinstance(source_doc.start_time, str):
-                    start_dt = datetime.fromisoformat(source_doc.start_time.replace('Z', '+00:00'))
-                    start_time = int(start_dt.timestamp())
-                elif isinstance(source_doc.start_time, datetime):
-                    start_time = int(source_doc.start_time.timestamp())
-            
-            if source_doc.end_time:
-                if isinstance(source_doc.end_time, str):
-                    end_dt = datetime.fromisoformat(source_doc.end_time.replace('Z', '+00:00'))
-                    end_time = int(end_dt.timestamp())
-                elif isinstance(source_doc.end_time, datetime):
-                    end_time = int(source_doc.end_time.timestamp())
+            start_time = cls._parse_time_field(source_doc.start_time, "start_time", source_doc.id)
+            end_time = cls._parse_time_field(source_doc.end_time, "end_time", source_doc.id)
             
             # 构建搜索内容
             search_content = cls._build_search_content(source_doc)

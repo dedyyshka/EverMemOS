@@ -1,7 +1,11 @@
-"""Cluster storage abstractions for ClusterManager."""
+"""In-memory cluster storage for evaluation.
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+This storage implementation is used by the evaluation framework for clustering
+during MemCell extraction. It keeps cluster states in memory with optional
+file persistence for checkpointing.
+"""
+
+from typing import Any, Dict, Optional
 from pathlib import Path
 import json
 import numpy as np
@@ -11,70 +15,7 @@ from core.observation.logger import get_logger
 logger = get_logger(__name__)
 
 
-class ClusterStorage(ABC):
-    """Abstract base class for cluster storage backends."""
-    
-    @abstractmethod
-    async def save_cluster_state(
-        self,
-        group_id: str,
-        state: Dict[str, Any]
-    ) -> bool:
-        """Save cluster state for a group.
-        
-        Args:
-            group_id: Group identifier
-            state: Cluster state dictionary
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        pass
-    
-    @abstractmethod
-    async def load_cluster_state(
-        self,
-        group_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """Load cluster state for a group.
-        
-        Args:
-            group_id: Group identifier
-        
-        Returns:
-            Cluster state dictionary if found, None otherwise
-        """
-        pass
-    
-    @abstractmethod
-    async def get_cluster_assignments(
-        self,
-        group_id: str
-    ) -> Dict[str, str]:
-        """Get event_id -> cluster_id mapping for a group.
-        
-        Args:
-            group_id: Group identifier
-        
-        Returns:
-            Dictionary mapping event_id to cluster_id
-        """
-        pass
-    
-    @abstractmethod
-    async def clear(self, group_id: Optional[str] = None) -> bool:
-        """Clear cluster state.
-        
-        Args:
-            group_id: Group to clear (None for all groups)
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        pass
-
-
-class InMemoryClusterStorage(ClusterStorage):
+class InMemoryClusterStorage:
     """In-memory cluster storage with optional file persistence."""
     
     def __init__(
@@ -106,18 +47,13 @@ class InMemoryClusterStorage(ClusterStorage):
     ) -> bool:
         """Save cluster state for a group."""
         try:
-            # Convert numpy arrays to lists for JSON serialization
             serializable_state = self._make_serializable(state)
-            
-            # Store in memory
             self._states[group_id] = serializable_state
             
-            # Persist to disk if enabled
             if self._enable_persistence:
                 self._persist_to_disk(group_id, serializable_state)
             
             return True
-        
         except Exception as e:
             logger.error(f"Failed to save cluster state for group {group_id}: {e}")
             return False
@@ -144,9 +80,7 @@ class InMemoryClusterStorage(ClusterStorage):
                 self._states.clear()
             elif group_id in self._states:
                 del self._states[group_id]
-            
             return True
-        
         except Exception as e:
             logger.error(f"Failed to clear cluster state: {e}")
             return False
@@ -178,17 +112,10 @@ class InMemoryClusterStorage(ClusterStorage):
             with open(state_file, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2, default=str)
             
-            # Also save assignments for backward compatibility
             assignments_file = self._persist_dir / f"cluster_map_{group_id}.json"
             assignments = state.get("eventid_to_cluster", {})
             with open(assignments_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"assignments": assignments},
-                    f,
-                    ensure_ascii=False,
-                    indent=2
-                )
-        
+                json.dump({"assignments": assignments}, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.warning(f"Failed to persist cluster state for group {group_id}: {e}")
     
@@ -201,16 +128,11 @@ class InMemoryClusterStorage(ClusterStorage):
             for state_file in self._persist_dir.glob("cluster_state_*.json"):
                 try:
                     group_id = state_file.stem.replace("cluster_state_", "")
-                    
                     with open(state_file, "r", encoding="utf-8") as f:
                         state = json.load(f)
-                    
                     self._states[group_id] = state
                     logger.info(f"Loaded cluster state for group {group_id} from disk")
-                
                 except Exception as e:
                     logger.warning(f"Failed to load cluster state from {state_file}: {e}")
-        
         except Exception as e:
             logger.error(f"Failed to load cluster states from disk: {e}")
-

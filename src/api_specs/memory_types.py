@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-import datetime
+from datetime import datetime
 from common_utils.datetime_utils import to_iso_format
 
 from api_specs.memory_models import MemoryType
@@ -59,7 +59,7 @@ class MemCell:
     user_id_list: List[str]
     # For downstream consumers we store normalized dicts extracted from RawData
     original_data: List[Dict[str, Any]]
-    timestamp: datetime.datetime
+    timestamp: datetime
     summary: str
 
     # Optional fields
@@ -134,7 +134,7 @@ class Memory:
 
     memory_type: MemoryType
     user_id: str
-    timestamp: datetime.datetime
+    timestamp: datetime
     ori_event_id_list: List[str]
 
     subject: Optional[str] = None
@@ -153,6 +153,10 @@ class Memory:
     # 语义记忆联想预测字段
     semantic_memories: Optional[List['SemanticMemoryItem']] = None  # 语义记忆联想列表
     extend: Optional[Dict[str, Any]] = None
+
+    # 向量和模型
+    vector_model: Optional[str] = None
+    vector: Optional[List[float]] = None
 
     def __post_init__(self):
         pass
@@ -207,7 +211,8 @@ class SemanticMemoryItem:
     end_time: Optional[str] = None  # 事件结束时间，格式：YYYY-MM-DD
     duration_days: Optional[int] = None  # 持续时间（天数）
     source_episode_id: Optional[str] = None  # 来源事件ID
-    embedding: Optional[List[float]] = None
+    vector: Optional[List[float]] = None
+    vector_model: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -217,5 +222,6 @@ class SemanticMemoryItem:
             "end_time": self.end_time,
             "duration_days": self.duration_days,
             "source_episode_id": self.source_episode_id,
-            "embedding": self.embedding,
+            "vector": self.vector,
+            "vector_model": self.vector_model,
         }

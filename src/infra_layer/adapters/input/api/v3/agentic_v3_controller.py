@@ -192,25 +192,29 @@ class AgenticV3Controller(BaseController):
             # 4. 转换为 MemorizeRequest 对象并调用 memory_manager
             logger.info("开始处理记忆请求")
             memorize_request = await handle_conversation_format(memorize_input)
-            memories = await self.memory_manager.memorize(memorize_request)
+            request_id = await self.memory_manager.memorize(memorize_request)
 
             # 5. 返回统一格式的响应
-            memory_count = len(memories) if memories else 0
-            logger.info("处理记忆请求完成，保存了 %s 条记忆", memory_count)
-
-            # 优化返回信息，帮助用户理解运行状态
-            if memory_count > 0:
-                message = f"Extracted {memory_count} memories"
+            if request_id:
+                # 检测到边界，已提交到 Worker 队列异步处理
+                logger.info("记忆请求已提交: request_id=%s", request_id)
+                return {
+                    "status": ErrorStatus.OK.value,
+                    "message": "Memory extraction submitted",
+                    "result": {
+                        "request_id": request_id,
+                        "status_info": "processing",
+                    },
+                }
             else:
-                message = "Message queued, awaiting boundary detection"
-
+                # 未检测到边界，消息已累积
+                logger.info("消息已累积，等待边界检测")
             return {
                 "status": ErrorStatus.OK.value,
-                "message": message,
+                    "message": "Message queued, awaiting boundary detection",
                 "result": {
-                    "saved_memories": memories,
-                    "count": memory_count,
-                    "status_info": "accumulated" if memory_count == 0 else "extracted",
+                        "request_id": None,
+                        "status_info": "accumulated",
                 },
             }
 

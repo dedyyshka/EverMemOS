@@ -1,4 +1,14 @@
-"""ClusterManager - Core component for automatic memcell clustering."""
+"""ClusterManager - Core component for automatic memcell clustering.
+
+This module provides pure computation logic for clustering memcells.
+Storage is managed by the caller, not by ClusterManager itself.
+
+Design:
+- ClusterManager is a pure computation component
+- Input: memcell + current state
+- Output: cluster_id + updated state
+- Caller is responsible for loading/saving state
+"""
 
 import asyncio
 import numpy as np
@@ -6,7 +16,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 
 from memory_layer.cluster_manager.config import ClusterManagerConfig
-from memory_layer.cluster_manager.storage import ClusterStorage, InMemoryClusterStorage
 from core.observation.logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,14 +47,7 @@ class ClusterState:
         self.cluster_last_ts: Dict[str, Optional[float]] = {}
     
     def assign_new_cluster(self, event_id: str) -> str:
-        """Assign a new cluster ID to an event.
-        
-        Args:
-            event_id: Event identifier
-        
-        Returns:
-            New cluster ID
-        """
+        """Assign a new cluster ID to an event."""
         cluster_id = f"cluster_{self.next_cluster_idx:03d}"
         self.next_cluster_idx += 1
         self.eventid_to_cluster[event_id] = cluster_id
@@ -59,14 +61,7 @@ class ClusterState:
         vector: np.ndarray,
         timestamp: Optional[float]
     ) -> None:
-        """Add an event to an existing cluster.
-        
-        Args:
-            event_id: Event identifier
-            cluster_id: Cluster to add to
-            vector: Event embedding vector
-            timestamp: Event timestamp
-        """
+        """Add an event to an existing cluster."""
         self.eventid_to_cluster[event_id] = cluster_id
         self.cluster_ids.append(cluster_id)
         self._update_cluster_centroid(cluster_id, vector, timestamp)
@@ -77,13 +72,7 @@ class ClusterState:
         vector: np.ndarray,
         timestamp: Optional[float]
     ) -> None:
-        """Update cluster centroid with new vector.
-        
-        Args:
-            cluster_id: Cluster identifier
-            vector: New vector to incorporate
-            timestamp: Timestamp to update
-        """
+        """Update cluster centroid with new vector."""
         if vector is None or vector.size == 0:
             if timestamp is not None:
                 prev_ts = self.cluster_last_ts.get(cluster_id)
@@ -124,14 +113,7 @@ class ClusterState:
     
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "ClusterState":
-        """Create ClusterState from dictionary.
-        
-        Args:
-            data: Dictionary representation
-        
-        Returns:
-            ClusterState instance
-        """
+        """Create ClusterState from dictionary."""
         state = ClusterState()
         state.event_ids = list(data.get("event_ids", []))
         state.timestamps = list(data.get("timestamps", []))
@@ -154,62 +136,37 @@ class ClusterState:
 
 
 class ClusterManager:
-    """Automatic clustering manager with event notifications.
+    """Automatic clustering manager - pure computation component.
     
     ClusterManager handles incremental clustering of memcells based on semantic
-    similarity (embeddings) and temporal proximity. It provides event hooks for
-    downstream processing (e.g., ProfileManager).
+    similarity (embeddings) and temporal proximity.
     
-    Key Features:
-    - Incremental clustering using centroid-based or nearest-neighbor algorithms
-    - Automatic embedding extraction via vectorize service
-    - Event callbacks on cluster assignments
-    - Persistent cluster state with version tracking
-    - Flexible storage backends
+    IMPORTANT: This is a pure computation component. The caller is responsible
+    for loading/saving cluster state.
     
-    Example:
+    Usage:
         ```python
-        # Initialize
-        config = ClusterManagerConfig(
-            similarity_threshold=0.65,
-            max_time_gap_days=7
-        )
         cluster_mgr = ClusterManager(config)
         
-        # Register callback
-        def on_cluster(group_id, memcell, cluster_id):
-            print(f"Memcell {memcell['event_id']} -> {cluster_id}")
+        # Caller loads state (from InMemory / MongoDB / file)
+        state_dict = await storage.load(group_id)
+        state = ClusterState.from_dict(state_dict) if state_dict else ClusterState()
         
-        cluster_mgr.on_cluster_assigned(on_cluster)
+        # Pure computation
+        cluster_id, updated_state = await cluster_mgr.cluster_memcell(memcell, state)
         
-        # Attach to extractor
-        cluster_mgr.attach_to_extractor(memcell_extractor)
+        # Caller saves state
+        await storage.save(group_id, updated_state.to_dict())
         ```
     """
     
-    def __init__(
-        self,
-        config: Optional[ClusterManagerConfig] = None,
-        storage: Optional[ClusterStorage] = None
-    ):
+    def __init__(self, config: Optional[ClusterManagerConfig] = None):
         """Initialize ClusterManager.
         
         Args:
             config: Clustering configuration (uses defaults if None)
-            storage: Cluster storage backend (uses InMemoryClusterStorage if None)
         """
         self.config = config or ClusterManagerConfig()
-        
-        # Initialize storage
-        if storage is None:
-            storage = InMemoryClusterStorage(
-                enable_persistence=self.config.enable_persistence,
-                persist_dir=Path(self.config.persist_dir) if self.config.persist_dir else None
-            )
-        self._storage = storage
-        
-        # Internal state
-        self._states: Dict[str, ClusterState] = {}
         self._callbacks: List[Callable] = []
         
         # Vectorize service
@@ -233,48 +190,35 @@ class ClusterManager:
         
         Callback signature:
             callback(group_id: str, memcell: Dict[str, Any], cluster_id: str) -> None
-        
-        Args:
-            callback: Function to call when a memcell is assigned to a cluster
         """
         self._callbacks.append(callback)
     
     async def cluster_memcell(
         self,
-        group_id: str,
-        memcell: Dict[str, Any]
-    ) -> Optional[str]:
-        """Cluster a memcell and return its cluster ID.
+        memcell: Dict[str, Any],
+        state: ClusterState,
+    ) -> Tuple[Optional[str], ClusterState]:
+        """Cluster a memcell and return updated state.
+        
+        Pure computation method - no storage operations.
+        Caller is responsible for loading state before and saving it after.
         
         Args:
-            group_id: Group/conversation identifier
             memcell: Memcell dictionary with event_id, timestamp, episode/summary
+            state: Current cluster state for the group
         
         Returns:
-            Cluster ID if successful, None otherwise
+            Tuple of (cluster_id, updated_state):
+            - cluster_id: Assigned cluster ID, or None if failed
+            - state: Updated ClusterState (same object, mutated)
         """
         self._stats["total_memcells"] += 1
-        
-        # Get or load state for this group
-        if group_id not in self._states:
-            # Try to load from storage first
-            stored_state = await self._storage.load_cluster_state(group_id)
-            if stored_state:
-                # Restore state from storage
-                self._states[group_id] = ClusterState.from_dict(stored_state)
-                logger.debug(f"Loaded cluster state for group {group_id} from storage")
-            else:
-                # Create new state
-                self._states[group_id] = ClusterState()
-                logger.debug(f"Created new cluster state for group {group_id}")
-        
-        state = self._states[group_id]
         
         # Extract key fields
         event_id = str(memcell.get("event_id", ""))
         if not event_id:
             logger.warning("Memcell missing event_id, skipping clustering")
-            return None
+            return None, state
         
         timestamp = self._parse_timestamp(memcell.get("timestamp"))
         text = self._extract_text(memcell)
@@ -289,20 +233,17 @@ class ClusterManager:
             state.vectors.append(np.zeros((1,), dtype=np.float32))
             self._stats["new_clusters"] += 1
             self._stats["failed_embeddings"] += 1
-            await self._notify_callbacks(group_id, memcell, cluster_id)
-            return cluster_id
+            return cluster_id, state
         
         # Find best matching cluster
         cluster_id = self._find_best_cluster(state, vector, timestamp)
         
         # Add to cluster
         if cluster_id is None:
-            # Create new cluster
             cluster_id = state.assign_new_cluster(event_id)
             state._update_cluster_centroid(cluster_id, vector, timestamp)
             self._stats["new_clusters"] += 1
         else:
-            # Add to existing cluster
             state.add_to_cluster(event_id, cluster_id, vector, timestamp)
         
         # Update state
@@ -312,13 +253,7 @@ class ClusterManager:
         
         self._stats["clustered_memcells"] += 1
         
-        # Save state to storage
-        await self._storage.save_cluster_state(group_id, state.to_dict())
-        
-        # Notify callbacks
-        await self._notify_callbacks(group_id, memcell, cluster_id)
-        
-        return cluster_id
+        return cluster_id, state
     
     def _find_best_cluster(
         self,
@@ -326,16 +261,7 @@ class ClusterManager:
         vector: np.ndarray,
         timestamp: Optional[float]
     ) -> Optional[str]:
-        """Find the best matching cluster for a vector.
-        
-        Args:
-            state: Cluster state for the group
-            vector: Embedding vector to match
-            timestamp: Timestamp of the event
-        
-        Returns:
-            Cluster ID if match found, None to create new cluster
-        """
+        """Find the best matching cluster for a vector."""
         if not state.cluster_centroids:
             return None
         
@@ -364,21 +290,13 @@ class ClusterManager:
                 best_similarity = similarity
                 best_cluster_id = cluster_id
         
-        # Check if best similarity meets threshold
         if best_similarity >= self.config.similarity_threshold:
             return best_cluster_id
         
         return None
     
     async def _get_embedding(self, text: str) -> Optional[np.ndarray]:
-        """Get embedding for text.
-        
-        Args:
-            text: Text to embed
-        
-        Returns:
-            Embedding vector if successful, None otherwise
-        """
+        """Get embedding for text."""
         if not self._vectorize_service:
             logger.warning("Vectorize service not available")
             return None
@@ -396,28 +314,19 @@ class ClusterManager:
         """Extract representative text from memcell.
         
         Priority: episode > summary > original_data
-        
-        Args:
-            memcell: Memcell dictionary
-        
-        Returns:
-            Extracted text
         """
-        # Try episode first
         episode = memcell.get("episode")
         if isinstance(episode, str) and episode.strip():
             return episode.strip()
         
-        # Try summary
         summary = memcell.get("summary")
         if isinstance(summary, str) and summary.strip():
             return summary.strip()
         
-        # Fallback to compact original_data
         lines = []
         original_data = memcell.get("original_data")
         if isinstance(original_data, list):
-            for item in original_data[:6]:  # Limit to first 6 messages
+            for item in original_data:
                 if isinstance(item, dict):
                     content = item.get("content") or item.get("summary")
                     if content:
@@ -428,21 +337,13 @@ class ClusterManager:
         return "\n".join(lines) if lines else str(memcell.get("event_id", ""))
     
     def _parse_timestamp(self, timestamp: Any) -> Optional[float]:
-        """Parse timestamp to float seconds.
-        
-        Args:
-            timestamp: Timestamp in various formats
-        
-        Returns:
-            Timestamp in seconds if successful, None otherwise
-        """
+        """Parse timestamp to float seconds."""
         if timestamp is None:
             return None
         
         try:
             if isinstance(timestamp, (int, float)):
                 val = float(timestamp)
-                # Convert milliseconds to seconds if needed
                 if val > 10_000_000_000:
                     val = val / 1000.0
                 return val
@@ -461,16 +362,9 @@ class ClusterManager:
         memcell: Dict[str, Any],
         cluster_id: str
     ) -> None:
-        """Notify all registered callbacks of cluster assignment.
-        
-        Args:
-            group_id: Group identifier
-            memcell: Memcell that was clustered
-            cluster_id: Assigned cluster ID
-        """
+        """Notify all registered callbacks of cluster assignment."""
         for callback in self._callbacks:
             try:
-                # Support both sync and async callbacks
                 if asyncio.iscoroutinefunction(callback):
                     await callback(group_id, memcell, cluster_id)
                 else:
@@ -478,109 +372,6 @@ class ClusterManager:
             except Exception as e:
                 logger.error(f"Callback error: {e}")
     
-    async def get_cluster_assignments(self, group_id: str) -> Dict[str, str]:
-        """Get event_id -> cluster_id mapping for a group.
-        
-        Args:
-            group_id: Group identifier
-        
-        Returns:
-            Dictionary mapping event_id to cluster_id
-        """
-        return await self._storage.get_cluster_assignments(group_id)
-    
-    async def export_clusters(self, output_dir: Path) -> int:
-        """Export cluster assignments to JSON files.
-        
-        Args:
-            output_dir: Directory to save cluster maps
-        
-        Returns:
-            Number of groups exported
-        """
-        output_dir.mkdir(parents=True, exist_ok=True)
-        count = 0
-        
-        for group_id, state in self._states.items():
-            try:
-                # Save full state
-                state_file = output_dir / f"cluster_state_{group_id}.json"
-                import json
-                with open(state_file, "w", encoding="utf-8") as f:
-                    json.dump(state.to_dict(), f, ensure_ascii=False, indent=2, default=str)
-                
-                # Save assignments map
-                assignments_file = output_dir / f"cluster_map_{group_id}.json"
-                with open(assignments_file, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {"assignments": state.eventid_to_cluster},
-                        f,
-                        ensure_ascii=False,
-                        indent=2
-                    )
-                
-                count += 1
-            
-            except Exception as e:
-                logger.error(f"Failed to export clusters for group {group_id}: {e}")
-        
-        logger.info(f"Exported {count} cluster maps to {output_dir}")
-        return count
-    
     def get_stats(self) -> Dict[str, Any]:
-        """Get clustering statistics.
-        
-        Returns:
-            Dictionary with statistics
-        """
-        return {
-            **self._stats,
-            "total_groups": len(self._states),
-            "total_clusters": sum(
-                len(set(state.cluster_ids)) for state in self._states.values()
-            ),
-        }
-    
-    def attach_to_extractor(self, memcell_extractor: Any) -> None:
-        """Attach ClusterManager to a MemCellExtractor.
-        
-        Creates a _cluster_worker attribute on the extractor for compatibility.
-        
-        Args:
-            memcell_extractor: ConvMemCellExtractor instance
-        """
-        # Create a wrapper that uses ClusterManager
-        class ClusterManagerWrapper:
-            def __init__(self, cluster_mgr: ClusterManager):
-                self._cluster_mgr = cluster_mgr
-                self._states = {}  # For compatibility
-            
-            def submit(self, group_id: Optional[str], memcell: Dict[str, Any]) -> None:
-                """Submit memcell for clustering."""
-                gid = group_id or "__default__"
-                
-                # Run clustering asynchronously
-                asyncio.create_task(
-                    self._cluster_mgr.cluster_memcell(gid, memcell)
-                )
-            
-            def stop(self) -> None:
-                """Compatibility method."""
-                pass
-            
-            async def dump_to_dir(self, output_dir: str) -> None:
-                """Export clusters to directory."""
-                await self._cluster_mgr.export_clusters(Path(output_dir))
-            
-            def get_assignments(self) -> Dict[str, Dict[str, str]]:
-                """Get all cluster assignments."""
-                return {
-                    gid: state.eventid_to_cluster
-                    for gid, state in self._cluster_mgr._states.items()
-                }
-        
-        # Attach the cluster worker (create if not exists)
-        memcell_extractor._cluster_worker = ClusterManagerWrapper(self)
-        
-        logger.info("ClusterManager successfully attached to MemCellExtractor")
-
+        """Get clustering statistics."""
+        return dict(self._stats)

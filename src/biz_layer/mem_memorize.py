@@ -31,6 +31,9 @@ from infra_layer.adapters.out.persistence.repository.conversation_status_raw_rep
 from infra_layer.adapters.out.persistence.repository.conversation_meta_raw_repository import (
     ConversationMetaRawRepository,
 )
+from infra_layer.adapters.out.persistence.repository.memcell_raw_repository import (
+    MemCellRawRepository,
+)
 from infra_layer.adapters.out.persistence.repository.core_memory_raw_repository import (
     CoreMemoryRawRepository,
 )
@@ -113,7 +116,8 @@ def _clone_semantic_memory_item(raw_item: Any) -> Optional[SemanticMemoryItem]:
             end_time=getattr(raw_item, "end_time", None),
             duration_days=getattr(raw_item, "duration_days", None),
             source_episode_id=getattr(raw_item, "source_episode_id", None),
-            embedding=getattr(raw_item, "embedding", None),
+            vector=getattr(raw_item, "vector", None),
+            vector_model=getattr(raw_item, "vector_model", None),
         )
 
     if isinstance(raw_item, dict):
@@ -124,7 +128,8 @@ def _clone_semantic_memory_item(raw_item: Any) -> Optional[SemanticMemoryItem]:
             end_time=raw_item.get("end_time"),
             duration_days=raw_item.get("duration_days"),
             source_episode_id=raw_item.get("source_episode_id"),
-            embedding=raw_item.get("embedding"),
+            vector=raw_item.get("vector"),
+            vector_model=raw_item.get("vector_model"),
         )
 
     return None
@@ -148,8 +153,14 @@ def _clone_event_log(raw_event_log: Any) -> Optional[EventLog]:
     return None
 
 
+from biz_layer.memorize_config import MemorizeConfig, DEFAULT_MEMORIZE_CONFIG
+
+
 async def _trigger_clustering(
-    group_id: str, memcell: MemCell, scene: Optional[str] = None
+    group_id: str,
+    memcell: MemCell,
+    scene: Optional[str] = None,
+    config: MemorizeConfig = DEFAULT_MEMORIZE_CONFIG,
 ) -> None:
     """异步触发 MemCell 聚类（后台任务，不阻塞主流程）
 
@@ -168,77 +179,39 @@ async def _trigger_clustering(
         from memory_layer.cluster_manager import (
             ClusterManager,
             ClusterManagerConfig,
-            MongoClusterStorage,
+            ClusterState,
         )
         from memory_layer.profile_manager import (
             ProfileManager,
             ProfileManagerConfig,
-            MongoProfileStorage,
+        )
+        from infra_layer.adapters.out.persistence.repository.cluster_state_raw_repository import (
+            ClusterStateRawRepository,
+        )
+        from infra_layer.adapters.out.persistence.repository.user_profile_raw_repository import (
+            UserProfileRawRepository,
         )
         from memory_layer.llm.llm_provider import LLMProvider
         from core.di import get_bean_by_type
         import os
 
-        logger.info(f"[聚类] 正在获取 MongoClusterStorage...")
+        logger.info(f"[聚类] 正在获取 ClusterStateRawRepository...")
         # 获取 MongoDB 存储
-        mongo_storage = get_bean_by_type(MongoClusterStorage)
-        logger.info(f"[聚类] MongoClusterStorage 获取成功: {type(mongo_storage)}")
+        cluster_storage = get_bean_by_type(ClusterStateRawRepository)
+        logger.info(f"[聚类] ClusterStateRawRepository 获取成功: {type(cluster_storage)}")
 
-        # 创建 ClusterManager（使用 MongoDB 存储）
-        config = ClusterManagerConfig(
-            similarity_threshold=0.65,
-            max_time_gap_days=7,
-            enable_persistence=False,  # MongoDB 不需要文件持久化
+        # 创建 ClusterManager（纯计算组件）
+        cluster_config = ClusterManagerConfig(
+            similarity_threshold=config.cluster_similarity_threshold,
+            max_time_gap_days=config.cluster_max_time_gap_days,
         )
-        cluster_manager = ClusterManager(config=config, storage=mongo_storage)
+        cluster_manager = ClusterManager(config=cluster_config)
         logger.info(f"[聚类] ClusterManager 创建成功")
 
-        # 创建 ProfileManager 并连接到 ClusterManager
-        # 获取 MongoDB Profile 存储
-        profile_storage = get_bean_by_type(MongoProfileStorage)
-        logger.info(f"[聚类] MongoProfileStorage 获取成功: {type(profile_storage)}")
-
-        llm_provider = LLMProvider(
-            provider_type=os.getenv("LLM_PROVIDER", "openai"),
-            model=os.getenv("LLM_MODEL", "gpt-4"),
-            base_url=os.getenv("LLM_BASE_URL"),
-            api_key=os.getenv("LLM_API_KEY"),
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.3")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "16384")),
-        )
-
-        # 根据 scene 决定 Profile 提取场景
-        # assistant/companion -> assistant 场景（提取兴趣、偏好、生活习惯）
-        # 其他 -> group_chat 场景（提取工作角色、技能、项目经验）
-        profile_scenario = (
-            "assistant"
-            if scene and scene.lower() in ["assistant", "companion"]
-            else "group_chat"
-        )
-
-        profile_config = ProfileManagerConfig(
-            scenario=profile_scenario,
-            min_confidence=0.6,
-            enable_versioning=True,
-            auto_extract=True,
-        )
-
-        profile_manager = ProfileManager(
-            llm_provider=llm_provider,
-            config=profile_config,
-            storage=profile_storage,  # 使用 MongoDB 存储
-            group_id=group_id,
-            group_name=None,  # 可以从 memcell 中获取
-        )
-
-        # 连接 ProfileManager 到 ClusterManager
-        profile_manager.attach_to_cluster_manager(cluster_manager)
-        logger.info(
-            f"[聚类] ProfileManager 已连接到 ClusterManager (场景: {profile_scenario}, 使用 MongoDB 存储)"
-        )
-        print(
-            f"[聚类] ProfileManager 已连接，阈值: {profile_manager._min_memcells_threshold}"
-        )
+        # 加载聚类状态
+        state_dict = await cluster_storage.load_cluster_state(group_id)
+        cluster_state = ClusterState.from_dict(state_dict) if state_dict else ClusterState()
+        logger.info(f"[聚类] 加载聚类状态: {len(cluster_state.event_ids)} 个已聚类事件")
 
         # 将 MemCell 转换为聚类所需的字典格式
         memcell_dict = {
@@ -252,10 +225,14 @@ async def _trigger_clustering(
         logger.info(f"[聚类] 开始执行聚类: {memcell_dict['event_id']}")
         print(f"[聚类] 开始执行聚类: event_id={memcell_dict['event_id']}")
 
-        # 执行聚类（会自动触发 ProfileManager 的回调）
-        cluster_id = await cluster_manager.cluster_memcell(
-            group_id=group_id, memcell=memcell_dict
+        # 执行聚类（纯计算）
+        cluster_id, cluster_state = await cluster_manager.cluster_memcell(
+            memcell_dict, cluster_state
         )
+
+        # 保存聚类状态
+        await cluster_storage.save_cluster_state(group_id, cluster_state.to_dict())
+        logger.info(f"[聚类] 聚类状态已保存")
 
         print(f"[聚类] 聚类完成: cluster_id={cluster_id}")
 
@@ -270,6 +247,17 @@ async def _trigger_clustering(
             )
             print(f"[聚类] ⚠️ 聚类返回 None")
 
+        # Profile 提取
+        if cluster_id:
+            await _trigger_profile_extraction(
+                group_id=group_id,
+                cluster_id=cluster_id,
+                cluster_state=cluster_state,
+                memcell=memcell,
+                scene=scene,
+                config=config,
+            )
+
     except Exception as e:
         # 聚类失败，打印详细错误信息并重新抛出
         import traceback
@@ -279,6 +267,126 @@ async def _trigger_clustering(
         print(error_msg)  # 确保在控制台能看到
         print(traceback.format_exc())
         raise  # 重新抛出异常，让调用者知道失败了
+
+
+async def _trigger_profile_extraction(
+    group_id: str,
+    cluster_id: str,
+    cluster_state,  # ClusterState
+    memcell: MemCell,
+    scene: Optional[str] = None,
+    config: MemorizeConfig = DEFAULT_MEMORIZE_CONFIG,
+) -> None:
+    """触发 Profile 提取
+    
+    Args:
+        group_id: 群组ID
+        cluster_id: 当前 memcell 被分配到的 cluster
+        cluster_state: 当前聚类状态
+        memcell: 当前处理的 MemCell
+        scene: 对话场景
+        config: 记忆提取配置
+    """
+    try:
+        from memory_layer.profile_manager import ProfileManager, ProfileManagerConfig
+        from infra_layer.adapters.out.persistence.repository.user_profile_raw_repository import (
+            UserProfileRawRepository,
+        )
+        from memory_layer.llm.llm_provider import LLMProvider
+        from core.di import get_bean_by_type
+        import os
+
+        # 获取当前 cluster 中的 memcell 数量
+        cluster_memcell_count = cluster_state.cluster_counts.get(cluster_id)
+        if cluster_memcell_count < config.profile_min_memcells:
+            logger.debug(
+                f"[Profile] Cluster {cluster_id} 只有 {cluster_memcell_count} 个 memcells "
+                f"(需要 {config.profile_min_memcells})，跳过提取"
+            )
+            return
+
+        logger.info(f"[Profile] 开始提取 Profile: cluster={cluster_id}, memcells={cluster_memcell_count}")
+
+        # 获取 Profile 存储
+        profile_storage = get_bean_by_type(UserProfileRawRepository)
+
+        # 创建 LLM Provider
+        llm_provider = LLMProvider(
+            provider_type=os.getenv("LLM_PROVIDER", "openai"),
+            model=os.getenv("LLM_MODEL", "gpt-4"),
+            base_url=os.getenv("LLM_BASE_URL"),
+            api_key=os.getenv("LLM_API_KEY"),
+            temperature=float(os.getenv("LLM_TEMPERATURE", "0.3")),
+            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "16384")),
+        )
+
+        # 确定场景
+        profile_scenario = (
+            "assistant"
+            if scene and scene.lower() in ["assistant", "companion"]
+            else "group_chat"
+        )
+
+        # 创建 ProfileManager（纯计算组件）
+        profile_config = ProfileManagerConfig(
+            scenario=profile_scenario,
+            min_confidence=config.profile_min_confidence,
+            enable_versioning=config.profile_enable_versioning,
+            auto_extract=True,
+        )
+        profile_manager = ProfileManager(
+            llm_provider=llm_provider,
+            config=profile_config,
+            group_id=group_id,
+            group_name=None,
+        )
+
+        # 获取参与者列表（排除机器人）
+        user_id_list = [u for u in (memcell.participants or []) 
+                        if "robot" not in u.lower() and "assistant" not in u.lower()]
+
+        # 加载已有的 profiles
+        old_profiles_dict = await profile_storage.get_all_profiles()
+        old_profiles = list(old_profiles_dict.values()) if old_profiles_dict else []
+
+        # 执行 Profile 提取（直接传递 MemCell 对象，而不是字典）
+        new_profiles = await profile_manager.extract_profiles(
+            memcells=[memcell],  # 传递 MemCell 对象
+            old_profiles=old_profiles,
+            user_id_list=user_id_list,
+        )
+
+        # 保存新提取的 profiles
+        for profile in new_profiles:
+            if isinstance(profile, dict):
+                user_id = profile.get('user_id')
+            else:
+                user_id = getattr(profile, 'user_id', None)
+            
+            if user_id:
+                await profile_storage.save_profile(
+                    user_id, 
+                    profile, 
+                    metadata={
+                        "group_id": group_id,
+                        "scenario": profile_scenario,
+                        "cluster_id": cluster_id,
+                        "memcell_count": cluster_memcell_count,
+                        "confidence": config.profile_min_confidence,
+                    }
+                )
+                logger.info(f"[Profile] ✅ 保存 Profile: user_id={user_id}, group_id={group_id}, cluster={cluster_id}")
+            else:
+                logger.warning(f"[Profile] ⚠️ Profile 没有 user_id，跳过保存: {type(profile)}")
+
+        logger.info(f"[Profile] ✅ Profile 提取完成: 提取 {len(new_profiles)} 个 profiles")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[Profile] ❌ Profile 提取失败: {e}", exc_info=True)
+        print(f"[Profile] ❌ Profile 提取失败: {e}")
+        print(traceback.format_exc())
+        # Profile 提取失败不应阻塞主流程
 
 
 def _convert_data_type_to_raw_data_type(data_type) -> RawDataType:
@@ -329,10 +437,324 @@ from biz_layer.mem_db_operations import (
     _convert_projects_participated_list,
     _convert_group_profile_raw_to_memory_format,
 )
+from typing import Tuple
 
 
-def if_memorize(memcells: List[MemCell]) -> bool:
+def if_memorize(memcell: MemCell) -> bool:
     return True
+
+
+# ==================== MemCell 处理业务逻辑 ====================
+
+@dataclass
+class ExtractionState:
+    """记忆提取状态，存储中间结果"""
+    memcell: MemCell
+    request: MemorizeRequest
+    current_time: datetime
+    scene: str
+    is_assistant_scene: bool
+    participants: List[str]
+    group_episode: Optional[Memory] = None
+    group_episode_memories: List[Memory] = None
+    episode_memories: List[Memory] = None
+    parent_docs_map: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        self.group_episode_memories = []
+        self.episode_memories = []
+        self.parent_docs_map = {}
+
+
+async def process_memory_extraction(
+    memcell: MemCell,
+    request: MemorizeRequest,
+    memory_manager: MemoryManager,
+    current_time: datetime,
+):
+    """
+    记忆提取主流程
+    
+    从 MemCell 开始，提取 Episode、Semantic、EventLog 等所有记忆类型。
+    """
+    # 1. 初始化状态
+    state = await _init_extraction_state(memcell, request, current_time)
+    
+    # 2. 提取 Episodes
+    await _extract_episodes(state, memory_manager)
+    
+    # 3. 更新 MemCell 并触发聚类
+    await _update_memcell_and_cluster(state)
+    
+    # 4. 保存和提取后续记忆
+    if if_memorize(memcell):
+        await _process_memories(state, memory_manager)
+
+
+async def _init_extraction_state(
+    memcell: MemCell,
+    request: MemorizeRequest,
+    current_time: datetime
+) -> ExtractionState:
+    """初始化提取状态"""
+    conversation_meta_repo = get_bean_by_type(ConversationMetaRawRepository)
+    conversation_meta = await conversation_meta_repo.get_by_group_id(request.group_id)
+    scene = conversation_meta.scene if conversation_meta and conversation_meta.scene else "assistant"
+    is_assistant_scene = scene.lower() in ["assistant", "companion"]
+    participants = list(set(memcell.participants)) if memcell.participants else []
+    
+    return ExtractionState(
+        memcell=memcell,
+        request=request,
+        current_time=current_time,
+        scene=scene,
+        is_assistant_scene=is_assistant_scene,
+        participants=participants,
+    )
+
+
+async def _extract_episodes(state: ExtractionState, memory_manager: MemoryManager):
+    """提取群组和个人 Episodes"""
+    if state.is_assistant_scene:
+        logger.info("[MemCell处理] assistant 场景，仅提取群组 Episode")
+        tasks = [_create_episode_task(state, memory_manager, None)]
+    else:
+        logger.info(f"[MemCell处理] 非 assistant 场景，提取群组 + {len(state.participants)} 个个人 Episode")
+        tasks = [_create_episode_task(state, memory_manager, None)]
+        tasks.extend([
+            _create_episode_task(state, memory_manager, uid)
+            for uid in state.participants
+        ])
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    _process_episode_results(state, results)
+
+
+def _create_episode_task(state: ExtractionState, memory_manager: MemoryManager, user_id: Optional[str]):
+    """创建 Episode 提取任务"""
+    return memory_manager.extract_memory(
+        memcell=state.memcell,
+        memory_type=MemoryType.EPISODIC_MEMORY,
+        user_id=user_id,
+        group_id=state.request.group_id,
+        group_name=state.request.group_name,
+    )
+
+
+def _process_episode_results(state: ExtractionState, results: List[Any]):
+    """处理 Episode 提取结果"""
+    # 群组 Episode
+    group_episode = results[0] if results else None
+    if isinstance(group_episode, Exception):
+        logger.error(f"[MemCell处理] ❌ 群组 Episode 异常: {group_episode}")
+        group_episode = None
+    elif group_episode:
+        group_episode.ori_event_id_list = [state.memcell.event_id]
+        group_episode.memcell_event_id_list = [state.memcell.event_id]
+        state.group_episode_memories.append(group_episode)
+        state.group_episode = group_episode
+        state.memcell.episode = group_episode.episode
+        state.memcell.subject = group_episode.subject
+        logger.info("[MemCell处理] ✅ 群组 Episode 提取成功")
+    
+    # 个人 Episodes
+    if not state.is_assistant_scene:
+        for user_id, result in zip(state.participants, results[1:]):
+            if isinstance(result, Exception):
+                logger.error(f"[MemCell处理] ❌ 个人 Episode 异常: user_id={user_id}")
+                continue
+            if result:
+                result.ori_event_id_list = [state.memcell.event_id]
+                result.memcell_event_id_list = [state.memcell.event_id]
+                state.episode_memories.append(result)
+                logger.info(f"[MemCell处理] ✅ 个人 Episode 成功: user_id={user_id}")
+
+
+async def _update_memcell_and_cluster(state: ExtractionState):
+    """更新 MemCell 的 episode 字段并触发聚类"""
+    if not state.request.group_id or not state.group_episode:
+        return
+    
+    # 更新 MemCell
+    try:
+        memcell_repo = get_bean_by_type(MemCellRawRepository)
+        await memcell_repo.update_by_event_id(
+            event_id=state.memcell.event_id,
+            update_data={"episode": state.group_episode.episode, "subject": state.group_episode.subject}
+        )
+        logger.info(f"[MemCell处理] ✅ 更新 MemCell episode: {state.memcell.event_id}")
+    except Exception as e:
+        logger.error(f"[MemCell处理] ❌ 更新 MemCell 失败: {e}")
+    
+    # 异步触发聚类
+    try:
+        memcell_for_clustering = MemCell(
+            event_id=state.memcell.event_id,
+            user_id_list=state.memcell.user_id_list,
+            original_data=state.memcell.original_data,
+            timestamp=state.memcell.timestamp,
+            summary=state.memcell.summary,
+            group_id=state.memcell.group_id,
+            group_name=state.memcell.group_name,
+            participants=state.memcell.participants,
+            type=state.memcell.type,
+            episode=state.group_episode.episode,
+        )
+        asyncio.create_task(_trigger_clustering(state.request.group_id, memcell_for_clustering, state.scene))
+        logger.info(f"[MemCell处理] 异步触发聚类 (scene={state.scene})")
+    except Exception as e:
+        logger.error(f"[MemCell处理] ❌ 触发聚类失败: {e}")
+
+
+async def _process_memories(state: ExtractionState, memory_manager: MemoryManager):
+    """保存 Episodes 并提取/保存 Semantic 和 EventLog"""
+    await load_core_memories(state.request, state.participants, state.current_time)
+    
+    episodic_source = state.group_episode_memories + state.episode_memories
+    episodes_to_save = list(episodic_source)
+    
+    # assistant 场景：复制群组 Episode 给每个用户
+    if state.is_assistant_scene and state.group_episode_memories:
+        episodes_to_save.extend(_clone_episodes_for_users(state))
+    
+    if episodes_to_save:
+        await _save_episodes(state, episodes_to_save, episodic_source)
+    
+    if episodic_source:
+        semantic_memories, event_logs = await _extract_semantic_and_eventlog(state, memory_manager, episodic_source)
+        await _save_semantic_and_eventlog(state, semantic_memories, event_logs)
+    
+    await update_status_after_memcell(state.request, state.memcell, state.current_time, state.request.raw_data_type)
+
+
+def _clone_episodes_for_users(state: ExtractionState) -> List[Memory]:
+    """为每个用户复制群组 Episode"""
+    from dataclasses import replace
+    cloned = []
+    group_ep = state.group_episode_memories[0]
+    for user_id in state.participants:
+        if "robot" in user_id.lower() or "assistant" in user_id.lower():
+            continue
+        cloned.append(replace(group_ep, user_id=user_id, user_name=user_id))
+    logger.info(f"[MemCell处理] 复制群组 Episode 给 {len(cloned)} 个用户")
+    return cloned
+
+
+async def _save_episodes(
+    state: ExtractionState,
+    episodes_to_save: List[Memory],
+    episodic_source: List[Memory]
+):
+    """保存 Episodes 到数据库"""
+    for ep in episodes_to_save:
+        if getattr(ep, "group_name", None) is None:
+            ep.group_name = state.request.group_name
+        if getattr(ep, "user_name", None) is None:
+            ep.user_name = ep.user_id
+    
+    docs = [_convert_episode_memory_to_doc(ep, state.current_time) for ep in episodes_to_save]
+    payloads = [MemoryDocPayload(MemoryType.EPISODIC_MEMORY, doc) for doc in docs]
+    saved_map = await save_memory_docs(payloads)
+    saved_docs = saved_map.get(MemoryType.EPISODIC_MEMORY, [])
+    
+    for ep, saved_doc in zip(episodic_source, saved_docs):
+        ep.event_id = str(saved_doc.event_id)
+        state.parent_docs_map[str(saved_doc.event_id)] = saved_doc
+
+
+async def _extract_semantic_and_eventlog(
+    state: ExtractionState,
+    memory_manager: MemoryManager,
+    episodic_source: List[Memory]
+) -> Tuple[List[SemanticMemoryItem], List[EventLog]]:
+    """提取 Semantic 和 EventLog"""
+    logger.info(f"[MemCell处理] 提取 Semantic/EventLog，共 {len(episodic_source)} 个 Episode")
+    
+    tasks = []
+    metadata = []
+    
+    for ep in episodic_source:
+        if not ep.event_id:
+            continue
+        tasks.append(memory_manager.extract_memory(
+            memcell=state.memcell, memory_type=MemoryType.SEMANTIC_MEMORY,
+            user_id=ep.user_id, episode_memory=ep,
+        ))
+        metadata.append({'type': MemoryType.SEMANTIC_MEMORY, 'ep': ep})
+        tasks.append(memory_manager.extract_memory(
+            memcell=state.memcell, memory_type=MemoryType.PERSONAL_EVENT_LOG,
+            user_id=ep.user_id, episode_memory=ep,
+        ))
+        metadata.append({'type': MemoryType.PERSONAL_EVENT_LOG, 'ep': ep})
+    
+    if not tasks:
+        return [], []
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    semantic_memories = []
+    event_logs = []
+    
+    for meta, result in zip(metadata, results):
+        if isinstance(result, Exception) or not result:
+            continue
+        
+        ep = meta['ep']
+        if meta['type'] == MemoryType.SEMANTIC_MEMORY:
+            for mem in result:
+                mem.parent_event_id = ep.event_id
+                mem.user_id = ep.user_id
+                mem.group_id = ep.group_id
+                mem.group_name = ep.group_name
+                mem.user_name = ep.user_name
+                semantic_memories.append(mem)
+        elif meta['type'] == MemoryType.PERSONAL_EVENT_LOG:
+            result.parent_event_id = ep.event_id
+            result.user_id = ep.user_id
+            result.group_id = ep.group_id
+            result.group_name = ep.group_name
+            result.user_name = ep.user_name
+            event_logs.append(result)
+    
+    return semantic_memories, event_logs
+
+
+async def _save_semantic_and_eventlog(
+    state: ExtractionState,
+    semantic_memories: List[SemanticMemoryItem],
+    event_logs: List[EventLog]
+):
+    """保存 Semantic 和 EventLog"""
+    semantic_docs = []
+    for mem in semantic_memories:
+        parent_doc = state.parent_docs_map.get(str(mem.parent_event_id))
+        if parent_doc:
+            semantic_docs.append(_convert_semantic_memory_to_doc(mem, parent_doc, state.current_time))
+    
+    event_log_docs = []
+    for el in event_logs:
+        parent_doc = state.parent_docs_map.get(str(el.parent_event_id))
+        if parent_doc:
+            event_log_docs.extend(_convert_event_log_to_docs(el, parent_doc, state.current_time))
+    
+    # assistant 场景：复制给每个用户
+    if state.is_assistant_scene:
+        user_ids = [u for u in state.participants if "robot" not in u.lower() and "assistant" not in u.lower()]
+        semantic_docs.extend([
+            doc.model_copy(update={"user_id": uid, "user_name": uid})
+            for doc in semantic_docs for uid in user_ids
+        ])
+        event_log_docs.extend([
+            doc.model_copy(update={"user_id": uid, "user_name": uid})
+            for doc in event_log_docs for uid in user_ids
+        ])
+        logger.info(f"[MemCell处理] 复制 Semantic/EventLog 给 {len(user_ids)} 个用户")
+    
+    payloads = []
+    payloads.extend(MemoryDocPayload(MemoryType.SEMANTIC_MEMORY, doc) for doc in semantic_docs)
+    payloads.extend(MemoryDocPayload(MemoryType.PERSONAL_EVENT_LOG, doc) for doc in event_log_docs)
+    if payloads:
+        await save_memory_docs(payloads)
 
 
 def extract_message_time(raw_data):
@@ -466,19 +888,19 @@ async def update_status_when_no_memcell(
 
 async def update_status_after_memcell(
     request: MemorizeRequest,
-    memcells: List[MemCell],
+    memcell: MemCell,
     current_time: datetime,
     data_type: RawDataType,
 ):
     if data_type == RawDataType.CONVERSATION:
-        # 更新状态表中的last_memcell_time至memcells最后一个时间戳
+        # 更新状态表中的last_memcell_time至memcell的时间戳
         try:
             status_repo = get_bean_by_type(ConversationStatusRawRepository)
 
             # 获取MemCell的时间戳
             memcell_time = None
-            if memcells and hasattr(memcells[-1], 'timestamp'):
-                memcell_time = memcells[-1].timestamp
+            if memcell and hasattr(memcell, 'timestamp'):
+                memcell_time = memcell.timestamp
             else:
                 memcell_time = current_time
 
@@ -526,6 +948,7 @@ async def save_memory_docs(
     episodic_docs = grouped_docs.get(MemoryType.EPISODIC_MEMORY, [])
     if episodic_docs:
         episodic_repo = get_bean_by_type(EpisodicMemoryRawRepository)
+        episodic_es_repo = get_bean_by_type(EpisodicMemoryEsRepository)
         episodic_milvus_repo = get_bean_by_type(EpisodicMemoryMilvusRepository)
         saved_episodic: List[Any] = []
 
@@ -534,7 +957,7 @@ async def save_memory_docs(
             saved_episodic.append(saved_doc)
 
             es_doc = EpisodicMemoryConverter.from_mongo(saved_doc)
-            await es_doc.save()
+            await episodic_es_repo.create(es_doc)
 
             milvus_entity = EpisodicMemoryMilvusConverter.from_mongo(saved_doc)
             vector = (
@@ -666,13 +1089,19 @@ async def load_core_memories(
         logger.info(f"[mem_memorize] 没有用户CoreMemory数据，old_memory_list为空")
 
 
-async def memorize(request: MemorizeRequest) -> List[Memory]:
-
-    # logger.info(f"[mem_memorize] request: {request}")
-
-    # logger.info(f"[mem_memorize] memorize request: {request}")
+async def memorize(request: MemorizeRequest) -> Optional[str]:
+    """
+    记忆提取主流程 (全局队列版)
+    
+    流程:
+    1. 提取 MemCell
+    2. 保存 MemCell 到数据库
+    3. 提交到全局队列由 Worker 异步处理
+    4. 立即返回，不等待后续处理完成
+    """
     logger.info(f"[mem_memorize] request.current_time: {request.current_time}")
-    # 获取当前时间，用于所有时间相关操作
+    
+    # 获取当前时间
     if request.current_time:
         current_time = request.current_time
     else:
@@ -681,98 +1110,47 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
 
     memory_manager = MemoryManager()
     conversation_data_repo = get_bean_by_type(ConversationDataRepository)
-    # 定义需要提取的记忆类型：先提取个人 episode，再基于 episode 提取语义记忆和事件日志
-    memory_types = [
-        MemoryType.EPISODIC_MEMORY,
-        MemoryType.SEMANTIC_MEMORY,
-        MemoryType.PERSONAL_EVENT_LOG,
-    ]
+    # ===== MemCell 提取阶段 =====
     if request.raw_data_type == RawDataType.CONVERSATION:
         request = await preprocess_conv_request(request, current_time)
-        # if request == None and request.new_raw_data_list == None:
-        #     return None
+        if request == None:
+            logger.warning(f"[mem_memorize] preprocess_conv_request 返回 None")
+            return None
 
-    if request.raw_data_type == RawDataType.CONVERSATION:
-        # async with distributed_lock(f"memcell_extract_{request.group_id}") as acquired:
-        #     # 120s等待，获取不到
-        #     if not acquired:
-        #         logger.warning(f"[mem_memorize] 获取分布式锁失败: {request.group_id}")
-        now = time.time()
+    # 边界检测
+    now = time.time()
+    logger.info("=" * 80)
+    logger.info(f"[边界检测] 开始检测: group_id={request.group_id}")
+    logger.info(f"[边界检测] 暂存历史消息: {len(request.history_raw_data_list)} 条")
+    logger.info(f"[边界检测] 新消息: {len(request.new_raw_data_list)} 条")
+    logger.info("=" * 80)
 
-        # 添加详细调试日志
-        logger.info(f"=" * 80)
-        logger.info(f"[边界检测] 开始检测: group_id={request.group_id}")
-        logger.info(f"[边界检测] 历史消息: {len(request.history_raw_data_list)} 条")
-        logger.info(f"[边界检测] 新消息: {len(request.new_raw_data_list)} 条")
-        if request.history_raw_data_list:
-            logger.info(
-                f"[边界检测] 历史消息范围: {request.history_raw_data_list[0].content.get('timestamp')} ~ {request.history_raw_data_list[-1].content.get('timestamp')}"
-            )
-        if request.new_raw_data_list:
-            for idx, raw in enumerate(request.new_raw_data_list):
-                logger.info(
-                    f"[边界检测] 新消息[{idx}]: {raw.content.get('speaker_id')} - {raw.content.get('content')[:50]}... @ {raw.content.get('timestamp')}"
-                )
-        logger.info(f"=" * 80)
-
-        logger.debug(
-            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}, "
-            f"semantic_extraction={request.enable_semantic_extraction}"
-        )
-        memcell_result = await memory_manager.extract_memcell(
-            request.history_raw_data_list,
-            request.new_raw_data_list,
-            request.raw_data_type,
-            request.group_id,
-            request.group_name,
-            request.user_id_list,
-            enable_semantic_extraction=request.enable_semantic_extraction,
-            enable_event_log_extraction=request.enable_event_log_extraction,
-        )
-        logger.debug(f"[memorize memorize] 提取MemCell耗时: {time.time() - now}秒")
-    else:
-        now = time.time()
-        logger.debug(
-            f"[memorize memorize] 提取MemCell开始: group_id={request.group_id}, group_name={request.group_name}, "
-            f"semantic_extraction={request.enable_semantic_extraction}, "
-            f"event_log_extraction={request.enable_event_log_extraction}"
-        )
-        memcell_result = await memory_manager.extract_memcell(
-            request.history_raw_data_list,
-            request.new_raw_data_list,
-            request.raw_data_type,
-            request.group_id,
-            request.group_name,
-            request.user_id_list,
-            enable_semantic_extraction=request.enable_semantic_extraction,
-            enable_event_log_extraction=request.enable_event_log_extraction,
-        )
-        logger.debug(f"[memorize memorize] 提取MemCell耗时: {time.time() - now}秒")
+    memcell_result = await memory_manager.extract_memcell(
+        request.history_raw_data_list,
+        request.new_raw_data_list,
+        request.raw_data_type,
+        request.group_id,
+        request.group_name,
+        request.user_id_list,
+    )
+    logger.debug(f"[mem_memorize] 提取 MemCell 耗时: {time.time() - now}秒")
 
     if memcell_result == None:
         logger.warning(f"[mem_memorize] 跳过提取MemCell")
         return None
 
-    logger.debug(f"[mem_memorize] memcell_result: {memcell_result}")
     memcell, status_result = memcell_result
 
-    # 添加边界检测结果日志
-    logger.info(f"=" * 80)
+    # 检查边界检测结果
+    logger.info("=" * 80)
     logger.info(f"[边界检测结果] memcell is None: {memcell is None}")
-    logger.info(
-        f"[边界检测结果] should_wait: {status_result.should_wait if status_result else 'N/A'}"
-    )
     if memcell is None:
         logger.info(
             f"[边界检测结果] 判断: {'需要等待更多消息' if status_result.should_wait else '非边界，继续累积'}"
         )
     else:
-        logger.info(f"[边界检测结果] 判断: 是边界！成功提取MemCell")
-        logger.info(f"[边界检测结果] MemCell event_id: {memcell.event_id}")
-        logger.info(
-            f"[边界检测结果] Episode: {memcell.episode[:100] if memcell.episode else 'None'}..."
-        )
-    logger.info(f"=" * 80)
+        logger.info(f"[边界检测结果] 判断: 是边界！event_id={memcell.event_id}")
+    logger.info("=" * 80)
 
     if memcell == None:
         # 保存新消息到 conversation_data_repo
@@ -782,11 +1160,10 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
         await update_status_when_no_memcell(
             request, status_result, current_time, request.raw_data_type
         )
-        logger.warning(f"[mem_memorize] 跳过提取MemCell")
+        logger.warning(f"[mem_memorize] 未检测到边界，返回")
         return None
     else:
         logger.info(f"[mem_memorize] 成功提取MemCell")
-
         # 判断为边界，清空对话历史数据（重新开始累积）
         try:
             conversation_data_repo = get_bean_by_type(ConversationDataRepository)
@@ -812,238 +1189,19 @@ async def memorize(request: MemorizeRequest) -> List[Memory]:
 
     # MemCell存表
     memcell = await _save_memcell_to_database(memcell, current_time)
+    logger.info(f"[mem_memorize] 成功保存 MemCell: {memcell.event_id}")
 
-    # print_memory = random.random() < 0.1
-
-    logger.info(f"[mem_memorize] 成功保存MemCell: {memcell.event_id}")
-
-    # if print_memory:
-    #     logger.info(f"[mem_memorize] 打印MemCell: {memcell}")
-
-    memcells = [memcell]
-
-    group_episode_memories: List[Memory] = [
-        Memory(
-            memory_type=MemoryType.EPISODIC_MEMORY,
-            user_id=None,  # 群组记忆的 user_id 为 None
-            timestamp=memcell.timestamp or current_time,
-            ori_event_id_list=[memcell.event_id],
-            subject=memcell.subject,
-            summary=memcell.summary,
-            episode=memcell.episode,
-            group_id=memcell.group_id,
-            group_name=memcell.group_name or request.group_name,
-            participants=memcell.participants,
-            type=memcell.type,
-            keywords=memcell.keywords,
-            linked_entities=memcell.linked_entities,
-            memcell_event_id_list=[memcell.event_id],
-            user_name=memcell.group_name or request.group_name,
-        )
-    ]
-
-    # 同步触发聚类（等待完成，确保 Profile 提取成功）
-    if request.group_id:
-        # 从 conversation_meta_raw_repository 获取 scene
-        conversation_meta_repo = get_bean_by_type(ConversationMetaRawRepository)
-        conversation_meta = await conversation_meta_repo.get_by_group_id(
-            request.group_id
-        )
-
-        # 如果找到 conversation_meta，使用其中的 scene；否则使用默认值 "assistant"
-        if conversation_meta and conversation_meta.scene:
-            scene = conversation_meta.scene
-            logger.info(f"[mem_memorize] 从 conversation_meta 获取 scene: {scene}")
-        else:
-            scene = "assistant"  # 默认场景，可选值: ["assistant", "companion"]
-            logger.warning(
-                f"[mem_memorize] 未找到 conversation_meta 或 scene 为空，使用默认 scene: {scene}"
-            )
-
-        await _trigger_clustering(request.group_id, memcell, scene)
-
-    # 读取记忆的流程
-    participants = []
-    for memcell in memcells:
-        if memcell.participants:
-            participants.extend(memcell.participants)
-
-    if if_memorize(memcells):
-        # 加锁
-        # 使用真实Repository读取用户数据
-        old_memory_list = await load_core_memories(request, participants, current_time)
-
-        episode_memories: List[Memory] = []
-        semantic_memories: List[SemanticMemoryItem] = []
-        event_logs: List[EventLog] = []
-
-        # 第一阶段：提取个人 episode
-        for memory_type in memory_types:
-            if memory_type == MemoryType.EPISODIC_MEMORY:
-                extracted_memories = await memory_manager.extract_memory(
-                    memcell_list=memcells,
-                    memory_type=memory_type,
-                    user_ids=participants,
-                    group_id=request.group_id,
-                    group_name=request.group_name,
-                    old_memory_list=old_memory_list,
-                )
-                if extracted_memories:
-                    episode_memories = extracted_memories
-
-        # 将 Episode 转换为 Doc 并保存，获取 parent_docs_map
-        parent_docs_map: Dict[str, Any] = {}
-        episodic_source_memories: List[Memory] = (
-            group_episode_memories + episode_memories
-        )
-        group_parent_event_id: Optional[str] = None
-
-        if episodic_source_memories:
-            for episode_mem in episodic_source_memories:
-                if getattr(episode_mem, "group_name", None) is None:
-                    episode_mem.group_name = request.group_name
-                if getattr(episode_mem, "user_name", None) is None:
-                    episode_mem.user_name = episode_mem.user_id
-            episodic_docs = [
-                _convert_episode_memory_to_doc(episode_mem, current_time)
-                for episode_mem in episodic_source_memories
-            ]
-            episodic_payloads = [
-                MemoryDocPayload(MemoryType.EPISODIC_MEMORY, doc)
-                for doc in episodic_docs
-            ]
-            saved_docs_map = await save_memory_docs(episodic_payloads)
-            saved_episode_docs = saved_docs_map.get(MemoryType.EPISODIC_MEMORY, [])
-            for idx, (episode_mem, saved_doc) in enumerate(
-                zip(episodic_source_memories, saved_episode_docs)
-            ):
-                episode_mem.event_id = str(saved_doc.event_id)
-                parent_docs_map[str(saved_doc.event_id)] = saved_doc
-                if group_parent_event_id is None and idx < len(group_episode_memories):
-                    group_parent_event_id = str(saved_doc.event_id)
-        else:
-            group_parent_event_id = None
-
-        # 第二阶段：基于已保存的 episode 提取语义记忆和事件日志
-        for memory_type in memory_types:
-            if memory_type in [
-                MemoryType.SEMANTIC_MEMORY,
-                MemoryType.PERSONAL_EVENT_LOG,
-            ]:
-                # 遍历所有已保存的 Episode (包括个人和群组)
-                for episode_mem in episodic_source_memories:
-                    if not episode_mem.event_id:
-                        continue
-                    # 跳过群组 Episode (user_id=None),因为群组的 semantic/eventlog 直接从 MemCell 提取
-                    if episode_mem.user_id is None or episode_mem.user_id == "":
-                        continue
-
-                    logger.info(
-                        f"🔍 为 user_id={episode_mem.user_id} 提取 {memory_type}"
-                    )
-                    extracted_memories = await memory_manager.extract_memory(
-                        memcell_list=[],
-                        memory_type=memory_type,
-                        user_ids=[episode_mem.user_id],
-                        episode_memory=episode_mem,
-                    )
-                    if not extracted_memories:
-                        logger.warning(
-                            f"⚠️  提取失败或为空: user_id={episode_mem.user_id}, memory_type={memory_type}"
-                        )
-                        continue
-                    logger.info(
-                        f"✅ 成功提取: user_id={episode_mem.user_id}, memory_type={memory_type}, 数量={len(extracted_memories) if isinstance(extracted_memories, list) else 1}"
-                    )
-
-                    if memory_type == MemoryType.SEMANTIC_MEMORY:
-                        for mem in extracted_memories:
-                            mem.parent_event_id = episode_mem.event_id
-                            mem.user_id = episode_mem.user_id
-                            mem.group_id = episode_mem.group_id
-                            mem.group_name = episode_mem.group_name
-                            # TODO:添加 username
-                            if getattr(mem, "user_name", None) is None:
-                                mem.user_name = episode_mem.user_name
-                            semantic_memories.append(mem)
-                    elif memory_type == MemoryType.PERSONAL_EVENT_LOG:
-                        extracted_memories.parent_event_id = episode_mem.event_id
-                        extracted_memories.user_id = episode_mem.user_id
-                        extracted_memories.group_id = episode_mem.group_id
-                        extracted_memories.group_name = episode_mem.group_name
-                        # TODO:添加 username
-                        if getattr(extracted_memories, "user_name", None) is None:
-                            extracted_memories.user_name = episode_mem.user_name
-                        event_logs.append(extracted_memories)
-
-        # 追加群组层面的语义记忆与事件日志（直接来自 MemCell）
-        if group_parent_event_id:
-            group_parent_doc = parent_docs_map.get(group_parent_event_id)
-            if memcell.semantic_memories and group_parent_doc:
-                for raw_sem in memcell.semantic_memories:
-                    sem_item = _clone_semantic_memory_item(raw_sem)
-                    sem_item.parent_event_id = group_parent_event_id
-                    sem_item.user_id = None  # 群组语义记忆的 user_id 为 None
-                    sem_item.group_id = memcell.group_id
-                    sem_item.group_name = memcell.group_name or request.group_name
-                    sem_item.user_name = sem_item.group_name
-                    semantic_memories.append(sem_item)
-
-            if memcell.event_log:
-                event_log_obj = _clone_event_log(memcell.event_log)
-                if event_log_obj and event_log_obj.atomic_fact:
-                    event_log_obj.parent_event_id = group_parent_event_id
-                    event_log_obj.user_id = None  # 群组事件日志的 user_id 为 None
-                    event_log_obj.group_id = memcell.group_id
-                    event_log_obj.group_name = memcell.group_name or request.group_name
-                    event_log_obj.user_name = event_log_obj.group_name
-                    event_logs.append(event_log_obj)
-
-        # 将语义记忆和事件日志转换为 Doc
-        semantic_docs = []
-        for sem_mem in semantic_memories:
-            parent_doc = parent_docs_map.get(str(sem_mem.parent_event_id))
-            if not parent_doc:
-                logger.warning(
-                    f"⚠️  未找到 parent_event_id={sem_mem.parent_event_id} 对应的 episodic_memory"
-                )
-                continue
-            doc = _convert_semantic_memory_to_doc(sem_mem, parent_doc, current_time)
-            semantic_docs.append(doc)
-
-        event_log_docs = []
-        for event_log in event_logs:
-            parent_doc = parent_docs_map.get(str(event_log.parent_event_id))
-            if not parent_doc:
-                logger.warning(
-                    f"⚠️  未找到 parent_event_id={event_log.parent_event_id} 对应的 episodic_memory"
-                )
-                continue
-            docs = _convert_event_log_to_docs(event_log, parent_doc, current_time)
-            event_log_docs.extend(docs)
-
-        payloads: List[MemoryDocPayload] = []
-        if semantic_docs:
-            payloads.extend(
-                MemoryDocPayload(MemoryType.SEMANTIC_MEMORY, doc)
-                for doc in semantic_docs
-            )
-        if event_log_docs:
-            payloads.extend(
-                MemoryDocPayload(MemoryType.PERSONAL_EVENT_LOG, doc)
-                for doc in event_log_docs
-            )
-        if payloads:
-            await save_memory_docs(payloads)
-
-        await update_status_after_memcell(
-            request, memcells, current_time, request.raw_data_type
-        )
-        # TODO: 实际项目中应该加锁避免并发问题
-        # 释放锁
-        return episode_memories + semantic_memories + event_logs
-
-    else:
+    # 提交到 Worker 队列，异步处理
+    from biz_layer.memorize_worker_service import MemorizeWorkerService
+    
+    try:
+        worker = get_bean_by_type(MemorizeWorkerService)
+        request_id = await worker.submit_memcell(memcell, request, current_time)
+        logger.info(f"[mem_memorize] ✅ MemCell 已提交到 Worker 队列, request_id={request_id}")
+        return request_id
+    except Exception as e:
+        logger.error(f"[mem_memorize] ❌ 提交失败: {e}")
+        traceback.print_exc()
         return None
 
 

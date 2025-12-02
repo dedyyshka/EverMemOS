@@ -293,7 +293,8 @@ def _convert_episode_memory_to_doc(
         keywords=getattr(episode_memory, 'keywords', None),
         linked_entities=getattr(episode_memory, 'linked_entities', None),
         memcell_event_id_list=getattr(episode_memory, 'memcell_event_id_list', None),
-        vector_model=getattr(episode_memory, 'vector_model', None),
+        vector_model=episode_memory.vector_model,
+        vector=episode_memory.vector,
         extend={
             "memory_type": episode_memory.memory_type.value,
             "ori_event_id": getattr(episode_memory, 'ori_event_id', None),
@@ -323,22 +324,18 @@ def _convert_semantic_memory_to_doc(
         current_time = get_now_with_timezone()
 
     return SemanticMemoryRecord(
-        user_id=getattr(semantic_memory, "user_id", None),
-        user_name=getattr(
-            semantic_memory, "user_name", getattr(parent_doc, "user_name", None)
-        ),
+        user_id=semantic_memory.user_id,
+        user_name=semantic_memory.user_name,
         content=semantic_memory.content,
         parent_episode_id=str(parent_doc.event_id),
         start_time=semantic_memory.start_time,
         end_time=semantic_memory.end_time,
         duration_days=semantic_memory.duration_days,
         group_id=semantic_memory.group_id,
-        group_name=getattr(
-            semantic_memory, "group_name", getattr(parent_doc, "group_name", None)
-        ),
+        group_name=semantic_memory.group_name,
         participants=parent_doc.participants,
-        vector=semantic_memory.embedding,
-        vector_model=getattr(semantic_memory, 'vector_model', None),
+        vector=semantic_memory.vector,
+        vector_model=semantic_memory.vector_model,
         evidence=semantic_memory.evidence,
         extend={},
     )
@@ -379,10 +376,8 @@ def _convert_event_log_to_docs(
             atomic_fact=fact,
             parent_episode_id=str(parent_doc.event_id),
             timestamp=parent_doc.timestamp or current_time,
-            group_id=getattr(event_log, "group_id", parent_doc.group_id),
-            group_name=getattr(
-                event_log, "group_name", getattr(parent_doc, "group_name", None)
-            ),
+            group_id=event_log.group_id,
+            group_name=event_log.group_name,
             participants=parent_doc.participants,
             vector=vector,
             vector_model=getattr(event_log, 'vector_model', None),

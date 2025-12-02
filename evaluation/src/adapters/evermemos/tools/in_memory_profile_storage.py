@@ -1,93 +1,22 @@
-"""Profile storage abstractions for ProfileManager."""
+"""In-memory profile storage for evaluation.
 
-from abc import ABC, abstractmethod
+This storage implementation is used by the evaluation framework for profile
+management during MemCell extraction. It keeps profiles in memory with optional
+file persistence for checkpointing.
+"""
+
 from typing import Any, Dict, List, Optional
-from datetime import datetime
 from pathlib import Path
 import json
 
-from common_utils.datetime_utils import get_now_with_timezone
+from common_utils.datetime_utils import get_now_with_timezone, to_iso_format
 from core.observation.logger import get_logger
-from common_utils.datetime_utils import to_iso_format
+
 logger = get_logger(__name__)
 
 
-class ProfileStorage(ABC):
-    """Abstract base class for profile storage backends."""
-    
-    @abstractmethod
-    async def save_profile(
-        self,
-        user_id: str,
-        profile: Any,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """Save or update a user profile.
-        
-        Args:
-            user_id: User identifier
-            profile: Profile object to save
-            metadata: Optional metadata (e.g., cluster_id, confidence, timestamp)
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        pass
-    
-    @abstractmethod
-    async def get_profile(self, user_id: str) -> Optional[Any]:
-        """Retrieve the latest profile for a user.
-        
-        Args:
-            user_id: User identifier
-        
-        Returns:
-            Profile object if found, None otherwise
-        """
-        pass
-    
-    @abstractmethod
-    async def get_all_profiles(self) -> Dict[str, Any]:
-        """Retrieve all user profiles.
-        
-        Returns:
-            Dictionary mapping user_id to profile
-        """
-        pass
-    
-    @abstractmethod
-    async def get_profile_history(
-        self,
-        user_id: str,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Retrieve profile version history for a user.
-        
-        Args:
-            user_id: User identifier
-            limit: Maximum number of versions to return (None for all)
-        
-        Returns:
-            List of profile versions with metadata, newest first
-        """
-        pass
-    
-    @abstractmethod
-    async def clear(self) -> bool:
-        """Clear all stored profiles.
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        pass
-
-
-class InMemoryProfileStorage(ProfileStorage):
-    """In-memory profile storage with optional file persistence.
-    
-    This implementation keeps profiles in memory for fast access and optionally
-    persists to JSON files for durability across restarts.
-    """
+class InMemoryProfileStorage:
+    """In-memory profile storage with optional file persistence."""
     
     def __init__(
         self,
@@ -123,33 +52,24 @@ class InMemoryProfileStorage(ProfileStorage):
     ) -> bool:
         """Save or update a user profile."""
         try:
-            # Store latest profile
             self._profiles[user_id] = profile
             
-            # Store in history if versioning enabled
             if self._enable_versioning:
-                
-                
                 history_entry = {
                     "profile": profile,
                     "metadata": metadata or {},
                     "timestamp": to_iso_format(get_now_with_timezone()),
                 }
-                
                 if user_id not in self._history:
                     self._history[user_id] = []
                 self._history[user_id].append(history_entry)
             
-            # Persist to disk if enabled
             if self._enable_persistence:
                 self._persist_to_disk(user_id, profile, metadata)
             
             return True
-        
         except Exception as e:
             logger.error(f"Failed to save profile for user {user_id}: {e}")
-            import traceback
-            traceback.print_exc()
             return False
     
     async def get_profile(self, user_id: str) -> Optional[Any]:
@@ -167,13 +87,9 @@ class InMemoryProfileStorage(ProfileStorage):
     ) -> List[Dict[str, Any]]:
         """Retrieve profile version history for a user."""
         history = self._history.get(user_id, [])
-        
-        # Return newest first
         history_reversed = list(reversed(history))
-        
         if limit is not None and limit > 0:
             return history_reversed[:limit]
-        
         return history_reversed
     
     async def clear(self) -> bool:
@@ -187,7 +103,7 @@ class InMemoryProfileStorage(ProfileStorage):
             return False
     
     def _serialize_for_json(self, obj: Any) -> Any:
-        """递归序列化对象为 JSON 兼容格式"""
+        """Recursively serialize object to JSON-compatible format."""
         import datetime as dt
         
         if isinstance(obj, dt.datetime):
@@ -213,29 +129,20 @@ class InMemoryProfileStorage(ProfileStorage):
         profile: Any,
         metadata: Optional[Dict[str, Any]]
     ) -> None:
-        """Persist profile to JSON file.
-        
-        参考原代码 save_individual_profile_to_file 的逻辑，
-        直接保存 ProfileMemory 的内容，不嵌套额外的包装层。
-        """
+        """Persist profile to JSON file."""
         if not self._persist_dir:
             return
         
         try:
-            # Convert profile to dict（参考原代码的处理）
             if hasattr(profile, "to_dict"):
                 try:
                     payload = profile.to_dict()
                 except (AttributeError, TypeError) as e:
-                    # 如果 to_dict() 失败（通常是因为 timestamp 已经是字符串）
                     error_msg = str(e).lower()
                     if 'tzinfo' in error_msg or 'isoformat' in error_msg:
-                        # timestamp 类型错误，使用备用方案
                         payload = profile.__dict__.copy()
-                        # 确保 memory_type 转换为字符串值
                         if hasattr(payload.get('memory_type'), 'value'):
                             payload['memory_type'] = payload['memory_type'].value
-                        # 处理 timestamp
                         ts = payload.get('timestamp')
                         if ts is not None:
                             if hasattr(ts, 'isoformat'):
@@ -246,10 +153,8 @@ class InMemoryProfileStorage(ProfileStorage):
                         raise
             elif hasattr(profile, "__dict__"):
                 payload = profile.__dict__.copy()
-                # 处理枚举类型
                 if hasattr(payload.get('memory_type'), 'value'):
                     payload['memory_type'] = payload['memory_type'].value
-                # 处理 timestamp
                 ts = payload.get('timestamp')
                 if ts is not None:
                     if hasattr(ts, 'isoformat'):
@@ -259,15 +164,12 @@ class InMemoryProfileStorage(ProfileStorage):
             else:
                 payload = profile
             
-            # 递归序列化所有嵌套对象
             payload = self._serialize_for_json(payload)
             
-            # Save latest snapshot（直接保存 profile 内容，不包装）
             latest_file = self._persist_dir / f"profile_{user_id}.json"
             with open(latest_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
             
-            # Save versioned history if enabled
             if self._enable_versioning:
                 history_dir = self._persist_dir / "history" / user_id
                 history_dir.mkdir(parents=True, exist_ok=True)
@@ -277,11 +179,8 @@ class InMemoryProfileStorage(ProfileStorage):
                 version_file = history_dir / f"profile_{user_id}_{timestamp_str}.json"
                 with open(version_file, "w", encoding="utf-8") as f:
                     json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
-        
         except Exception as e:
             logger.warning(f"Failed to persist profile for user {user_id}: {e}")
-            import traceback
-            traceback.print_exc()
     
     def _load_from_disk(self) -> None:
         """Load profiles from disk on initialization."""
@@ -289,7 +188,6 @@ class InMemoryProfileStorage(ProfileStorage):
             return
         
         try:
-            # Load latest profiles
             for profile_file in self._persist_dir.glob("profile_*.json"):
                 if profile_file.stem.startswith("profile_") and not profile_file.parent.name == "history":
                     try:
@@ -302,11 +200,9 @@ class InMemoryProfileStorage(ProfileStorage):
                         if user_id and profile:
                             self._profiles[user_id] = profile
                             logger.info(f"Loaded profile for user {user_id} from disk")
-                    
                     except Exception as e:
                         logger.warning(f"Failed to load profile from {profile_file}: {e}")
             
-            # Load history if versioning enabled
             if self._enable_versioning:
                 history_base = self._persist_dir / "history"
                 if history_base.exists():
@@ -329,7 +225,5 @@ class InMemoryProfileStorage(ProfileStorage):
                             
                             if user_history:
                                 self._history[user_id] = user_history
-        
         except Exception as e:
             logger.error(f"Failed to load profiles from disk: {e}")
-
