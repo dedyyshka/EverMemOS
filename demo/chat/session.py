@@ -301,9 +301,8 @@ class ChatSession:
         # print(f"  - top_k: {self.config.top_k_memories}")
         # print(f"  - time_range_days: {self.config.time_range_days}")
         
-        # 显示友好的等待提示
-        print(f"\n⏳ 正在检索记忆...")
-        # print(f"   涉及：LLM 充分性判断 → 多轮检索 → 结果融合")
+        # 显示友好的等待提示（国际化）
+        print(f"\n⏳ {self.texts.get('agentic_retrieving')}")
         
         try:
             # 🔥 Agentic 检索需要更长时间：增加到 180 秒（3分钟）

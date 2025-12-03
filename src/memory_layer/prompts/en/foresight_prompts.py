@@ -18,10 +18,11 @@ You are an advanced foresight analysis agent. Your task is to predict potential 
 6. **Member Relationship-Oriented**: Allow referencing specific member IDs (e.g., user_1, user_2), but focus on describing "group relationship changes" or "overall atmosphere trends."
 
 ## Output Format:
-Return results as a JSON array, each association includes time information:
+Return results as a JSON array, each association includes time information and evidence:
 [
   {
     "content": "Team communication frequency will increase in the next week",
+    "evidence": "During the meeting, user_1 emphasized communication efficiency issues",
     "start_time": "2025-01-15",
     "end_time": "2025-01-22",
     "duration_days": 7,
@@ -43,6 +44,7 @@ Return results as a JSON array, each association includes time information:
 [
   {
     "content": "user_2 will lead the next phase goal planning",
+    "evidence": "user_2 proposed new goal directions",
     "start_time": "2025-01-15",
     "end_time": "2025-01-31",
     "duration_days": 16,
@@ -50,6 +52,7 @@ Return results as a JSON array, each association includes time information:
   },
   {
     "content": "Team will reassign workload internally",
+    "evidence": "user_3 expressed workload pressure",
     "start_time": "2025-01-15",
     "end_time": "2025-01-22",
     "duration_days": 7,
@@ -71,6 +74,7 @@ Return results as a JSON array, each association includes time information:
 [
   {
     "content": "user_2 will frequently check on user_1's recovery in the next few days",
+    "evidence": "user_2 immediately came to help and supported them home",
     "start_time": "2025-10-23",
     "end_time": "2025-10-30",
     "duration_days": 7,
@@ -78,6 +82,7 @@ Return results as a JSON array, each association includes time information:
   },
   {
     "content": "user_1 will reduce outdoor activities in the near term",
+    "evidence": "user_1 sprained their ankle while walking in the park",
     "start_time": "2025-10-23",
     "end_time": "2025-10-30",
     "duration_days": 7,
@@ -91,11 +96,13 @@ Return results as a JSON array, each association includes time information:
 - **Scenario Adaptation**: Language style must match the event scenario - use casual expressions for life scenarios, professional expressions for work scenarios.
 - **Time Inference**: Reasonably infer time ranges based on event type, common sense, and user status - don't rigidly apply fixed times.
 - **Content Innovation**: Don't repeat original content; generate new group behaviors or atmosphere changes that the event might trigger.
+- **Semantic Retrieval Friendly**: content should be the prediction result (e.g., "will increase communication frequency"), evidence stores the original fact (e.g., "communication issues mentioned in meeting"), enabling AI to retrieve relevant foresights based on user queries and trace back reasons.
 - **Time Information Extraction Rules:**
   - start_time: Extract the specific date when the event occurred from the MemCell's timestamp field, format: YYYY-MM-DD
   - end_time: Extract the specific end time from the original content. If there's an explicit end time (e.g., "before October 24", "2025-11-15"), extract the specific date; otherwise, reasonably infer based on event content and common sense
   - duration_days: Extract duration from the original content. If there's explicit time description (e.g., "within a week", "7 days", "one month"), extract days; otherwise, reasonably infer based on event content and common sense
   - source_episode_id: Use the event_id from the input
+  - evidence: Extract specific evidence from the original content that supports this prediction, must be facts or behaviors explicitly mentioned in the original text, no more than 30 words
   - **Important**: Prioritize extracting explicit time information from the original text; if not available, make reasonable inferences based on event content and common sense. Time cannot be null
 """
 
@@ -114,10 +121,11 @@ You are an advanced personal foresight analysis agent. Your task is to predict t
 7. **Direct User ID Usage**: Output should directly use user IDs (e.g., user_1), avoid using generic terms like "the user."
 
 ## Output Format:
-Return results as a JSON array, each association includes time information:
+Return results as a JSON array, each association includes time information and evidence:
 [
   {
     "content": "user_1 should pay more attention to emotional management recently",
+    "evidence": "user_1 just completed wisdom tooth extraction surgery, may have discomfort",
     "start_time": "2025-10-21",
     "end_time": "2025-10-28",
     "duration_days": 7,
@@ -139,6 +147,7 @@ Return results as a JSON array, each association includes time information:
 [
   {
     "content": "XiaoMing will adjust dietary habits for the next week",
+    "evidence": "doctor emphasized attention to diet and hygiene for the next week",
     "start_time": "2025-10-21",
     "end_time": "2025-10-28",
     "duration_days": 7,
@@ -146,6 +155,7 @@ Return results as a JSON array, each association includes time information:
   },
   {
     "content": "XiaoMing will develop a habit of regular dental check-ups",
+    "evidence": "the doctor reminded to maintain oral hygiene and regular follow-ups",
     "start_time": "2025-10-21",
     "end_time": "2025-11-21",
     "duration_days": 31,
@@ -167,6 +177,7 @@ Return results as a JSON array, each association includes time information:
 [
   {
     "content": "LiHua will apply new project management methods in the future",
+    "evidence": "LiHua learned agile development methods during training",
     "start_time": "2025-10-24",
     "end_time": "2025-11-24",
     "duration_days": 31,
@@ -174,6 +185,7 @@ Return results as a JSON array, each association includes time information:
   },
   {
     "content": "LiHua will pay attention to more career development opportunities",
+    "evidence": "LiHua attended company-organized project management training",
     "start_time": "2025-10-24",
     "end_time": "2025-12-24",
     "duration_days": 61,
@@ -188,11 +200,13 @@ Return results as a JSON array, each association includes time information:
 - **Scenario Adaptation**: Language style must match the event scenario - use casual expressions for life scenarios, professional expressions for work scenarios.
 - **Time Inference**: Reasonably infer time ranges based on event type, personal status, and common sense - don't rigidly apply fixed times.
 - **Content Practicality**: Content must be specific, reasonable, practical, and usable by the system for personal foresight modeling.
+- **Semantic Retrieval Friendly**: content should be the prediction result (e.g., "will choose soft food"), evidence stores the original fact (e.g., "wisdom tooth extraction"), enabling AI to retrieve relevant foresights based on user queries (e.g., "recommend food") and trace back reasons.
 - **Time Information Extraction Rules:**
   - start_time: Extract the specific date when the event occurred from the MemCell's timestamp field, format: YYYY-MM-DD
   - end_time: Extract the specific end time from the original content. If there's an explicit end time (e.g., "before October 24", "2025-11-15"), extract the specific date; otherwise, reasonably infer based on event content and common sense
   - duration_days: Extract duration from the original content. If there's explicit time description (e.g., "within a week", "7 days", "one month"), extract days; otherwise, reasonably infer based on event content and common sense
   - source_episode_id: Use the event_id from the input
+  - evidence: Extract specific evidence from the input content that supports this prediction, must be facts or behaviors explicitly mentioned in the original text, no more than 30 words
   - **Important**: Prioritize extracting explicit time information from the original text; if not available, make reasonable inferences based on event content and common sense. Time cannot be null
 """
 

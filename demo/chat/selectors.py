@@ -29,6 +29,10 @@ class LanguageSelector:
         print("  [1] 中文 (Chinese)")
         print("  [2] English")
         print()
+        # 语言一致性提示
+        print("  💡 提示：为获得最佳体验，建议记忆数据与选择的语言保持一致")
+        print("     Note: For best experience, memory data should match the selected language")
+        print()
         
         while True:
             try:
@@ -38,8 +42,10 @@ class LanguageSelector:
                 
                 index = int(choice)
                 if index == 1:
+                    print("\n✓ 已选择：中文 | AI 将使用中文回答\n")
                     return "zh"
                 elif index == 2:
+                    print("\n✓ Selected: English | AI will respond in English\n")
                     return "en"
                 else:
                     print("❌ 请输入 1 或 2 / Please enter 1 or 2\n")

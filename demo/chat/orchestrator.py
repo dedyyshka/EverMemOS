@@ -77,15 +77,9 @@ class ChatOrchestrator:
     async def initialize_database(self, texts: I18nTexts) -> bool:
         """初始化数据库连接"""
         mongo_config = MongoDBConfig()
-        print(mongo_config) 
-        ui = CLIUI()
-        ui.note(texts.get("mongodb_connecting"), icon="🔌")
         
         try:
             await ensure_mongo_beanie_ready(mongo_config)
-            # 清除连接提示
-            print("\r\033[K", end="")
-            print("\033[A\033[K", end="")
             return True
         except Exception as e:
             ChatUI.print_error(texts.get("mongodb_init_failed", error=str(e)), texts)
@@ -102,24 +96,36 @@ class ChatOrchestrator:
         
         return selected_group_id
     
-    async def select_retrieval_mode(self) -> str:
-        """检索模式选择"""
+    async def select_retrieval_mode(self, texts: I18nTexts) -> str:
+        """检索模式选择
+        
+        Args:
+            texts: 国际化文本对象
+            
+        Returns:
+            检索模式字符串
+        """
         ui = CLIUI()
         print()
-        ui.section_heading("🔍 检索模式选择")
+        ui.section_heading(texts.get("retrieval_mode_selection_title"))
         print()
-        print("  [1] RRF 融合（推荐） - Embedding + BM25 融合")
-        print("  [2] 纯向量检索 - 语义理解最强")
-        print("  [3] 纯 BM25 检索 - 关键词精确匹配")
-        print("  [4] Agentic 检索 - LLM 引导的多轮检索（实验性）")
+        print(f"  [1] {texts.get('retrieval_mode_rrf')} - {texts.get('retrieval_mode_rrf_desc')}")
+        print(f"  [2] {texts.get('retrieval_mode_embedding')} - {texts.get('retrieval_mode_embedding_desc')}")
+        print(f"  [3] {texts.get('retrieval_mode_bm25')} - {texts.get('retrieval_mode_bm25_desc')}")
+        print(f"  [4] {texts.get('retrieval_mode_agentic')} - {texts.get('retrieval_mode_agentic_desc')}")
         print()
         
         mode_map = {1: "rrf", 2: "embedding", 3: "bm25", 4: "agentic"}
-        mode_desc = {1: "RRF 融合", 2: "纯向量检索", 3: "纯 BM25", 4: "Agentic 检索"}
+        mode_desc = {
+            1: texts.get('retrieval_mode_rrf'),
+            2: texts.get('retrieval_mode_embedding'),
+            3: texts.get('retrieval_mode_bm25'),
+            4: texts.get('retrieval_mode_agentic'),
+        }
         
         while True:
             try:
-                choice = input("请选择检索模式 [1-4]: ").strip()
+                choice = input(f"{texts.get('retrieval_mode_prompt')}: ").strip()
                 if not choice:
                     continue
                 
@@ -128,15 +134,15 @@ class ChatOrchestrator:
                     # 特殊提示：Agentic 模式需要 LLM
                     if index == 4:
                         print()
-                        ui.note("⚠️  Agentic 检索将使用 LLM API，可能产生额外费用", icon="💰")
+                        ui.note(texts.get("retrieval_mode_agentic_cost_warning"), icon="💰")
                         print()
                     
-                    ui.success(f"✓ 已选择: {mode_desc[index]}")
+                    ui.success(f"✓ {texts.get('retrieval_mode_selected')}: {mode_desc[index]}")
                     return mode_map[index]
                 else:
-                    ui.error("✗ 请输入 1-4")
+                    ui.error(f"✗ {texts.get('retrieval_mode_invalid_range')}")
             except ValueError:
-                ui.error("✗ 请输入有效数字")
+                ui.error(f"✗ {texts.get('invalid_input_number')}")
             except KeyboardInterrupt:
                 print("\n")
                 raise
@@ -260,7 +266,8 @@ class ChatOrchestrator:
         # 1. 初始化 readline
         self.setup_readline()
         
-        # 2. 语言选择
+        # 2. 刷新屏幕，然后语言选择
+        ChatUI.clear_screen()
         texts = await self.select_language()
         
         # 3. 场景选择
@@ -288,7 +295,7 @@ class ChatOrchestrator:
         
         # 8. 检索模式选择
         try:
-            retrieval_mode = await self.select_retrieval_mode()
+            retrieval_mode = await self.select_retrieval_mode(texts)
         except KeyboardInterrupt:
             print("\n")
             return

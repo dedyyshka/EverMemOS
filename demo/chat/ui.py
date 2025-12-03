@@ -10,33 +10,34 @@ from demo.ui import I18nTexts
 from common_utils.cli_ui import CLIUI
 
 
-def extract_event_time_from_memory(mem: Dict[str, Any]) -> str:
+def extract_event_time_from_memory(mem: Dict[str, Any]) -> Optional[str]:
     """从记忆数据中提取事件实际发生时间
     
     提取优先级：
     1. subject 字段中的日期（括号格式，如 "(2025-08-26)"）
     2. subject 字段中的日期（中文格式，如 "2025年8月26日"）
     3. episode 内容中的日期（中文或 ISO 格式）
-    4. 如果都提取不到，返回 "N/A"（不显示存储时间）
+    4. timestamp / created_at / event_time 等时间字段
+    5. 如果都提取不到，返回 None
     
     Args:
-        mem: 记忆字典，包含 subject, episode 等字段
+        mem: 记忆字典，包含 subject, episode, timestamp 等字段
         
     Returns:
-        日期字符串，格式为 YYYY-MM-DD，或 "N/A"
+        日期字符串，格式为 YYYY-MM-DD，或 None（无法提取）
         
     Examples:
         >>> mem = {"subject": "北京旅游建议 (2025-08-26)"}
         >>> extract_event_time_from_memory(mem)
         '2025-08-26'
         
-        >>> mem = {"episode": "于2025年8月26日，用户咨询..."}
+        >>> mem = {"timestamp": "2025-08-26T10:30:00"}
         >>> extract_event_time_from_memory(mem)
         '2025-08-26'
         
         >>> mem = {"subject": "", "episode": ""}
         >>> extract_event_time_from_memory(mem)
-        'N/A'
+        None
     """
     subject = mem.get("subject", "")
     episode = mem.get("episode", "")
@@ -72,8 +73,17 @@ def extract_event_time_from_memory(mem: Dict[str, Any]) -> str:
             year, month, day = match.groups()
             return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
     
-    # 4. 无法提取事件时间，返回 N/A（不显示存储时间）
-    return "N/A"
+    # 4. 从时间字段提取（timestamp, created_at, event_time, updated_at）
+    for time_field in ["timestamp", "event_time", "created_at", "updated_at"]:
+        time_value = mem.get(time_field, "")
+        if time_value:
+            # 支持 ISO 格式 "YYYY-MM-DDTHH:MM:SS" 或 "YYYY-MM-DD HH:MM:SS"
+            match = re.search(r'(\d{4}-\d{2}-\d{2})', str(time_value))
+            if match:
+                return match.group(1)
+    
+    # 5. 无法提取事件时间，返回 None
+    return None
 
 
 class ChatUI:
@@ -142,12 +152,13 @@ class ChatUI:
             retrieval_mode = retrieval_metadata.get("retrieval_mode", "rrf")
             latency_ms = retrieval_metadata.get("total_latency_ms", 0.0)
             
+            # 国际化检索模式显示
             mode_map = {
-                "rrf": "RRF融合",
-                "embedding": "纯向量",
-                "bm25": "纯BM25",
-                "agentic": "Agentic",
-                "agentic_fallback": "Agentic(降级)",
+                "rrf": texts.get("agentic_mode_rrf"),
+                "embedding": texts.get("agentic_mode_embedding"),
+                "bm25": texts.get("agentic_mode_bm25"),
+                "agentic": texts.get("agentic_mode_agentic"),
+                "agentic_fallback": texts.get("agentic_mode_agentic_fallback"),
             }
             mode_text = mode_map.get(retrieval_mode, retrieval_mode)
             heading += f" | {mode_text} | {int(latency_ms)}ms"
@@ -158,53 +169,58 @@ class ChatUI:
         if retrieval_metadata and retrieval_metadata.get("retrieval_mode") == "agentic":
             agentic_info = []
             
-            # LLM 判断结果
+            # LLM 判断结果（国际化）
             is_sufficient = retrieval_metadata.get("is_sufficient")
             if is_sufficient is not None:
-                status = "✅ 充分" if is_sufficient else "❌ 不充分"
-                agentic_info.append(f"LLM 判断: {status}")
+                status_icon = "✅" if is_sufficient else "❌"
+                status_text = texts.get("agentic_sufficient") if is_sufficient else texts.get("agentic_insufficient")
+                agentic_info.append(f"{texts.get('agentic_llm_judgment')}: {status_icon} {status_text}")
             
-            # 是否多轮
+            # 是否多轮（国际化）
             is_multi_round = retrieval_metadata.get("is_multi_round", False)
             if is_multi_round:
-                agentic_info.append("🔄 多轮检索")
+                agentic_info.append(f"🔄 {texts.get('agentic_multi_round')}")
                 
                 # 改进查询
                 refined_queries = retrieval_metadata.get("refined_queries", [])
                 if refined_queries:
-                    agentic_info.append(f"生成查询: {len(refined_queries)} 个")
+                    agentic_info.append(f"{texts.get('agentic_generated_queries')}: {len(refined_queries)}")
             else:
-                agentic_info.append("⚡ 单轮检索")
+                agentic_info.append(f"⚡ {texts.get('agentic_single_round')}")
             
-            # Round 统计
+            # Round 统计（国际化）
             round1_count = retrieval_metadata.get("round1_count", 0)
             round2_count = retrieval_metadata.get("round2_count", 0)
+            items_text = texts.get("agentic_items")
             if round1_count:
-                agentic_info.append(f"R1: {round1_count} 条")
+                agentic_info.append(f"{texts.get('agentic_round1_count')}: {round1_count} {items_text}")
             if round2_count:
-                agentic_info.append(f"R2: {round2_count} 条")
+                agentic_info.append(f"{texts.get('agentic_round2_count')}: {round2_count} {items_text}")
             
             if agentic_info:
                 print()
                 ui.note(" | ".join(agentic_info), icon="🤖")
                 
-                # 显示 LLM 推理（优化提示语）
+                # 显示 LLM 推理（国际化优化提示语）
                 reasoning = retrieval_metadata.get("reasoning")
                 if reasoning:
-                    # 优化常见的误导性提示
-                    if "均为空" in reasoning or "内容均为空" in reasoning or "所有检索到的记忆内容均为空" in reasoning:
-                        reasoning = "💡 首轮检索到的记忆信息不够充分，LLM 生成了更精确的补充查询以获取更多相关记忆"
-                    elif "未提供" in reasoning and "信息" in reasoning:
-                        # 提取关键词，使提示更友好
-                        reasoning = f"💡 {reasoning.replace('未提供任何关于', '首轮检索缺少').replace('信息', '相关信息，已补充查询')}"
+                    # 优化常见的误导性提示（国际化）
+                    # 检测中文内容并替换为国际化文本
+                    chinese_keywords = [
+                        "为空", "均为空", "内容为空", "记忆内容",
+                        "未提供", "不足", "无法提供", "相关性",
+                        "检索到的记忆", "信息不够"
+                    ]
+                    if any(kw in reasoning for kw in chinese_keywords):
+                        reasoning = texts.get("agentic_reasoning_hint")
                     
                     print(f"   💭 {reasoning}")
                 
-                # 显示改进查询
+                # 显示改进查询（国际化）
                 if is_multi_round:
                     refined_queries = retrieval_metadata.get("refined_queries", [])
                     if refined_queries:
-                        print(f"   🔍 补充查询 ({len(refined_queries)} 个):")
+                        print(f"   🔍 {texts.get('agentic_supplementary_queries')} ({len(refined_queries)}):")
                         for i, q in enumerate(refined_queries[:3], 1):
                             print(f"      {i}. {q[:60]}{'...' if len(q) > 60 else ''}")
         
@@ -229,7 +245,11 @@ class ChatUI:
             if len(display_text) > 80:
                 display_text = display_text[:77] + "..."
             
-            lines.append(f"📌 [{i:2d}]  {event_time}  │  {display_text}")
+            # 构建显示行：有时间则显示时间，无时间则省略
+            if event_time:
+                lines.append(f"📌 [{i}]  {event_time}  │  {display_text}")
+            else:
+                lines.append(f"📌 [{i}]  {display_text}")
         
         if lines:
             print()

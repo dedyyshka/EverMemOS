@@ -86,7 +86,10 @@ class ForesightExtractor(MemoryExtractor):
         # 最多重试5次
         for retry in range(5):
             try:
-                logger.info(f"🎯 为MemCell生成前瞻联想: {memcell.subject}，重试次数: {retry+1}/5")
+                if retry == 0:
+                    logger.info(f"🎯 为MemCell生成前瞻联想: {memcell.subject}")
+                else:
+                    logger.info(f"🎯 为MemCell生成前瞻联想: {memcell.subject}，重试次数: {retry}/5")
 
                 # 构建提示词
                 prompt = get_group_foresight_generation_prompt(

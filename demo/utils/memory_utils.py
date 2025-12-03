@@ -86,9 +86,9 @@ async def ensure_mongo_beanie_ready(mongo_config: MongoDBConfig) -> None:
     client = AsyncMongoClient(mongo_config.uri)
     try:
         await client.admin.command('ping')
-        print(f"[MongoDB] ✅ 连接成功: {mongo_config.database}")
+        print(f"[MongoDB] ✅ Connected: {mongo_config.database}")
     except Exception as e:
-        print(f"[MongoDB] ❌ 连接失败: {e}")
+        print(f"[MongoDB] ❌ Connection failed: {e}")
         raise
 
     # 初始化 Beanie 文档模型

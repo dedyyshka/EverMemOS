@@ -28,6 +28,10 @@ class I18nTexts:
         "language_chinese": {"zh": "中文", "en": "Chinese (中文)"},
         "language_english": {"zh": "英文 (English)", "en": "English"},
         "language_selected": {"zh": "已选择语言", "en": "Language selected"},
+        "language_consistency_hint": {
+            "zh": "💡 提示：为获得最佳体验，建议记忆数据与选择的语言保持一致",
+            "en": "💡 Note: For best experience, memory data should match the selected language",
+        },
         "invalid_input_number": {
             "zh": "请输入有效的数字",
             "en": "Please enter a valid number",
@@ -58,36 +62,70 @@ class I18nTexts:
             "en": "🔍  Retrieval Mode Selection",
         },
         "retrieval_mode_prompt": {
-            "zh": "请选择检索模式 [1-2]",
-            "en": "Please select retrieval mode [1-2]",
+            "zh": "请选择检索模式 [1-4]",
+            "en": "Please select retrieval mode [1-4]",
         },
-        "retrieval_mode_lightweight": {"zh": "轻量级检索", "en": "Lightweight Retrieval"},
-        "retrieval_mode_lightweight_desc": {
-            "zh": "快速检索，适合 demo 数据或小批量数据",
-            "en": "Fast retrieval, suitable for demo or small-scale data",
+        "retrieval_mode_rrf": {"zh": "RRF 融合（推荐）", "en": "RRF Fusion (Recommended)"},
+        "retrieval_mode_rrf_desc": {
+            "zh": "Embedding + BM25 融合",
+            "en": "Embedding + BM25 fusion",
+        },
+        "retrieval_mode_embedding": {"zh": "纯向量检索", "en": "Embedding Only"},
+        "retrieval_mode_embedding_desc": {
+            "zh": "语义理解最强",
+            "en": "Best semantic understanding",
+        },
+        "retrieval_mode_bm25": {"zh": "纯 BM25 检索", "en": "BM25 Only"},
+        "retrieval_mode_bm25_desc": {
+            "zh": "关键词精确匹配",
+            "en": "Exact keyword matching",
         },
         "retrieval_mode_agentic": {"zh": "Agentic 检索", "en": "Agentic Retrieval"},
         "retrieval_mode_agentic_desc": {
-            "zh": "智能多轮检索，提升检索效果，适合大规模数据",
-            "en": "Multi-round intelligent retrieval, improves quality, suitable for large-scale data",
+            "zh": "LLM 引导的多轮检索（实验性）",
+            "en": "LLM-guided multi-round retrieval (experimental)",
         },
         "retrieval_mode_selected": {"zh": "已选择检索模式", "en": "Retrieval mode selected"},
-        "retrieval_mode_lightweight_note": {
-            "zh": "💡 轻量级检索：速度快，成本低，适合 demo 演示和快速测试",
-            "en": "💡 Lightweight: Fast and cost-effective, ideal for demos and quick tests",
+        "retrieval_mode_agentic_cost_warning": {
+            "zh": "⚠️  Agentic 检索将使用 LLM API，可能产生额外费用",
+            "en": "⚠️  Agentic retrieval uses LLM API, may incur additional costs",
         },
-        "retrieval_mode_agentic_note": {
-            "zh": "💡 Agentic 检索：质量高，包含多轮检索和 LLM 引导，适合生产环境和大规模数据",
-            "en": "💡 Agentic: High quality with multi-round retrieval and LLM guidance, ideal for production and large datasets",
+        "retrieval_mode_invalid_range": {
+            "zh": "请输入 1-4",
+            "en": "Please enter 1-4",
         },
+        # ==================== Agentic 检索 UI ====================
+        "agentic_retrieving": {
+            "zh": "正在检索记忆...",
+            "en": "Retrieving memories...",
+        },
+        "agentic_mode_rrf": {"zh": "RRF融合", "en": "RRF Fusion"},
+        "agentic_mode_embedding": {"zh": "纯向量", "en": "Embedding"},
+        "agentic_mode_bm25": {"zh": "纯BM25", "en": "BM25"},
+        "agentic_mode_agentic": {"zh": "Agentic", "en": "Agentic"},
+        "agentic_mode_agentic_fallback": {"zh": "Agentic(降级)", "en": "Agentic(fallback)"},
+        "agentic_llm_judgment": {"zh": "LLM 判断", "en": "LLM Judgment"},
+        "agentic_sufficient": {"zh": "充分", "en": "Sufficient"},
+        "agentic_insufficient": {"zh": "不充分", "en": "Insufficient"},
+        "agentic_multi_round": {"zh": "多轮检索", "en": "Multi-round"},
+        "agentic_single_round": {"zh": "单轮检索", "en": "Single-round"},
+        "agentic_generated_queries": {"zh": "生成查询", "en": "Generated queries"},
+        "agentic_round1_count": {"zh": "R1", "en": "R1"},
+        "agentic_round2_count": {"zh": "R2", "en": "R2"},
+        "agentic_items": {"zh": "条", "en": "items"},
+        "agentic_reasoning_hint": {
+            "zh": "💡 首轮检索到的记忆信息不够充分，LLM 生成了更精确的补充查询以获取更多相关记忆",
+            "en": "💡 First-round memories insufficient, LLM generated refined queries for more relevant memories",
+        },
+        "agentic_supplementary_queries": {"zh": "补充查询", "en": "Supplementary queries"},
         # ==================== 横幅和欢迎 ====================
         "banner_title": {
             "zh": "🧠  EverMem 记忆对话助手",
             "en": "🧠  EverMem Memory-Enhanced Chat Assistant",
         },
         "banner_subtitle": {
-            "zh": "🤖 v1.0.0  ·  Memory-Enhanced Chat",
-            "en": "🤖 v1.0.0  ·  Memory-Enhanced Chat",
+            "zh": "🤖 v1.1.0  ·  Memory-Enhanced Chat",
+            "en": "🤖 v1.1.0  ·  Memory-Enhanced Chat",
         },
         "readline_available": {
             "zh": "支持方向键移动光标、删除字符，按 ↑↓ 浏览历史输入",
@@ -302,6 +340,8 @@ class I18nTexts:
         "prompt_system_role_zh": {
             "zh": """你是记忆增强 AI 助手，可访问用户画像与历史对话。请用温和、合作、尊重的中文回答。
 
+⚠️ 语言要求：你必须始终使用中文回答，即使记忆内容包含其他语言。
+
 目标：
 - 基于记忆进行深度分析、推理和合理推测，给出有价值的结论与建议。
 - 即使证据不足也要尝试推理，但需明确标注确定性程度。
@@ -342,7 +382,9 @@ Schema：
   "confidence": "high|medium|low",
   "additional_notes": "补充说明、推测依据或建议（可选）"
 }""",
-            "en": """You are a memory-augmented AI assistant with access to user profiles and conversation history. Use a gentle, cooperative, respectful assistant tone to answer in English.
+            "en": """You are a memory-augmented AI assistant with access to user profiles and conversation history. Use a gentle, cooperative, respectful assistant tone.
+
+⚠️ LANGUAGE REQUIREMENT: You MUST always respond in Chinese (中文), even if memory content is in other languages.
 
 Goal:
 - Provide concise, actionable conclusions and suggestions based on memory-driven professional analysis and reasoning.
@@ -376,7 +418,9 @@ Schema:
 }""",
         },
         "prompt_system_role_en": {
-            "zh": """你是记忆增强 AI 助手，可访问用户画像与历史对话。请用温和、合作、尊重的助理语气。你必须始终用英文回答。
+            "zh": """你是记忆增强 AI 助手，可访问用户画像与历史对话。请用温和、合作、尊重的助理语气。
+
+⚠️ 语言要求：你必须始终使用英文 (English) 回答，即使记忆内容是中文或其他语言。
 
 目标：
 - 基于记忆进行深度分析、推理和合理推测，给出有价值的结论与建议。
@@ -418,7 +462,9 @@ Schema：
   "confidence": "high|medium|low",
   "additional_notes": "补充说明、推测依据或建议（可选）"
 }""",
-            "en": """You are a memory-augmented AI assistant with access to user profiles and conversation history. Use a gentle, cooperative, respectful assistant tone to answer in English.
+            "en": """You are a memory-augmented AI assistant with access to user profiles and conversation history. Use a gentle, cooperative, respectful assistant tone.
+
+⚠️ LANGUAGE REQUIREMENT: You MUST always respond in English, even if memory content is in Chinese or other languages.
 
 Goal:
 - Provide valuable conclusions and suggestions based on deep analysis, reasoning, and reasonable speculation from memories.
