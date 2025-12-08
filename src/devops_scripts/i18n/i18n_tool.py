@@ -401,20 +401,48 @@ def run_git_command(args: list[str], cwd: Path | None = None) -> tuple[bool, str
         return False, str(e)
 
 
-def get_changed_files_from_git(commit_range: str) -> tuple[bool, list[str]]:
-    """Get list of changed Python files in the commit range."""
-    success, output = run_git_command(
-        ["diff", "--name-only", "--diff-filter=ACMR", commit_range, "--", "*.py"]
-    )
+def get_changed_files_from_git(commit_ref: str) -> tuple[bool, list[str]]:
+    """Get list of changed Python files in a commit or commit range.
+
+    Args:
+        commit_ref: A single commit (e.g., "HEAD", "abc123") or a range (e.g., "HEAD~3..HEAD")
+    """
+    if ".." in commit_ref:
+        # It's a range, use git diff
+        success, output = run_git_command(
+            ["diff", "--name-only", "--diff-filter=ACMR", commit_ref, "--", "*.py"]
+        )
+    else:
+        # Single commit, use git show to get files changed in that specific commit
+        success, output = run_git_command(
+            ["show", "--name-only", "--format=", commit_ref, "--", "*.py"]
+        )
     if not success:
         return False, [output]
     files = [f.strip() for f in output.split("\n") if f.strip()]
     return True, files
 
 
-def get_file_diff(commit_range: str, file_path: str) -> tuple[bool, str]:
-    """Get the diff for a specific file."""
-    success, output = run_git_command(["diff", commit_range, "--", file_path])
+def get_file_diff(
+    commit_ref: str, file_path: str, context_lines: int = 3
+) -> tuple[bool, str]:
+    """Get the diff for a specific file in a commit or commit range.
+
+    Args:
+        commit_ref: A single commit or a range
+        file_path: Path to the file
+        context_lines: Number of context lines around changes (default: 3, use 0 for minimal)
+    """
+    if ".." in commit_ref:
+        # It's a range, use git diff
+        success, output = run_git_command(
+            ["diff", f"-U{context_lines}", commit_ref, "--", file_path]
+        )
+    else:
+        # Single commit, use git show to get the diff for that specific commit
+        success, output = run_git_command(
+            ["show", f"-U{context_lines}", "--format=", commit_ref, "--", file_path]
+        )
     return success, output
 
 
@@ -587,6 +615,10 @@ async def translate_file(
 # ==============================================================================
 
 
+# Maximum diff size for LLM analysis (200KB should be fine for most models)
+MAX_DIFF_SIZE = 200 * 1024
+
+
 async def review_file_diff(
     provider: OpenAIProvider,
     file_path: str,
@@ -603,11 +635,11 @@ async def review_file_diff(
 
     async with semaphore:
         try:
-            if len(diff) > 50 * 1024:
+            if len(diff) > MAX_DIFF_SIZE:
                 result = FileReviewResult(
                     file_path=file_path,
                     result=ReviewResult.NEEDS_REVIEW,
-                    reason="Diff too large for automated analysis",
+                    reason=f"Diff too large for automated analysis ({len(diff)/1024:.1f}KB > {MAX_DIFF_SIZE/1024:.0f}KB limit)",
                     diff_summary=f"Diff size: {len(diff) / 1024:.1f}KB",
                 )
                 async with progress_lock:
@@ -615,7 +647,9 @@ async def review_file_diff(
                         {"file": file_path, "reason": result.reason}
                     )
                     save_review_progress(progress)
-                print(f"{progress_prefix} [NEEDS-REVIEW] {file_path} - Diff too large")
+                print(
+                    f"{progress_prefix} [NEEDS-REVIEW] {file_path} - Diff too large ({len(diff)/1024:.1f}KB)"
+                )
                 return result
 
             if not diff.strip():
@@ -888,7 +922,7 @@ def cmd_check(directories: list[Path], specific_files: list[str] | None = None) 
 
 
 async def cmd_review(
-    commit_range: str = "HEAD",
+    commit_ref: str = "HEAD",
     max_concurrency: int = 5,
     verbose: bool = False,
     dry_run: bool = False,
@@ -897,18 +931,27 @@ async def cmd_review(
     """Execute the review command."""
     print_header("Translation Changes Review")
 
-    # Normalize commit range
-    if ".." not in commit_range:
-        commit_range = f"{commit_range}~1..{commit_range}"
+    # Determine if it's a single commit or a range
+    is_range = ".." in commit_ref
 
-    commit_ref = commit_range.split("..")[-1]
-    success, commit_info = get_commit_info(commit_ref)
+    if is_range:
+        # It's a range like HEAD~3..HEAD
+        display_ref = commit_ref.split("..")[-1]
+    else:
+        # Single commit reference
+        display_ref = commit_ref
+
+    success, commit_info = get_commit_info(display_ref)
     if success:
         print(f"Reviewing commit: {commit_info['hash']}")
         print(f"  Message: {commit_info['message']}")
         print(f"  Author: {commit_info['author']}")
         print(f"  Date: {commit_info['date']}")
-    print(f"Commit range: {commit_range}")
+
+    if is_range:
+        print(f"Commit range: {commit_ref}")
+    else:
+        print(f"Single commit: {commit_ref}")
     print()
 
     # Handle progress
@@ -918,19 +961,17 @@ async def cmd_review(
 
     progress = load_review_progress()
 
-    # Check if we're resuming a different commit range
-    if progress.get("commit_range") and progress.get("commit_range") != commit_range:
-        print(
-            f"Previous review was for different commit range: {progress['commit_range']}"
-        )
-        print("Clearing progress and starting fresh for new commit range")
+    # Check if we're resuming a different commit
+    if progress.get("commit_ref") and progress.get("commit_ref") != commit_ref:
+        print(f"Previous review was for different commit: {progress['commit_ref']}")
+        print("Clearing progress and starting fresh for new commit")
         clear_review_progress()
         progress = load_review_progress()
 
-    progress["commit_range"] = commit_range
+    progress["commit_ref"] = commit_ref
 
     print("Getting changed Python files...")
-    success, files = get_changed_files_from_git(commit_range)
+    success, files = get_changed_files_from_git(commit_ref)
     if not success:
         print(f"Error getting changed files: {files[0] if files else 'Unknown error'}")
         return 1
@@ -981,7 +1022,18 @@ async def cmd_review(
         tasks = []
 
         for idx, file_path in enumerate(files_to_process):
-            success, diff = get_file_diff(commit_range, file_path)
+            # Try to get diff with default context (3 lines)
+            success, diff = get_file_diff(commit_ref, file_path, context_lines=3)
+
+            # If diff is too large, try with minimal context (0 lines)
+            if success and len(diff) > MAX_DIFF_SIZE:
+                print(
+                    f"  [INFO] {file_path}: diff too large ({len(diff)/1024:.1f}KB), retrying with minimal context..."
+                )
+                success, diff = get_file_diff(commit_ref, file_path, context_lines=0)
+                if success:
+                    print(f"  [INFO] {file_path}: reduced to {len(diff)/1024:.1f}KB")
+
             if not success:
 
                 async def make_error_result(
@@ -1204,7 +1256,7 @@ def main():
     elif args.command == "review":
         exit_code = asyncio.run(
             cmd_review(
-                commit_range=args.commit,
+                commit_ref=args.commit,
                 max_concurrency=args.max_concurrency,
                 verbose=args.verbose,
                 dry_run=args.dry_run,

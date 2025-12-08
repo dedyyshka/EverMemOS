@@ -20,18 +20,23 @@ LEVEL_PRIORITY = {
     # Empty/missing
     "": 0,
     # Low level
+    "低级": 1,
     "low": 1,
     "basic": 1,
     "beginner": 1,
+    "初级": 1,
     "familiar": 1,
     "weak": 1,
     # Medium level
+    "中级": 2,
     "medium": 2,
     "intermediate": 2,
     # High level
+    "高级": 3,
     "high": 3,
     "advanced": 3,
     "strong": 3,
+    "专家": 3,
     "expert": 3,
 }
 
