@@ -61,10 +61,15 @@ from api_specs.memory_models import MemoryType, RetrieveMethod
 logger = logging.getLogger(__name__)
 
 
+# MemoryType -> ES Repository mapping
+ES_REPO_MAP = {
+    MemoryType.FORESIGHT: ForesightEsRepository,
+    MemoryType.EVENT_LOG: EventLogEsRepository,
+    MemoryType.EPISODIC_MEMORY: EpisodicMemoryEsRepository,
+}
 @dataclass
 class EventLogCandidate:
     """Event Log candidate object (used for retrieval from atomic_fact)"""
-
     event_id: str
     user_id: str
     group_id: str
@@ -306,7 +311,7 @@ class MemoryManager:
 
     async def get_keyword_search_results(
         self, retrieve_mem_request: 'RetrieveMemRequest'
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         try:
             # Get parameters from Request
             if not retrieve_mem_request:
@@ -320,12 +325,6 @@ class MemoryManager:
             end_time = retrieve_mem_request.end_time
             memory_types = retrieve_mem_request.memory_types
 
-            # MemoryType -> ES Repository mapping
-            ES_REPO_MAP = {
-                MemoryType.FORESIGHT: ForesightEsRepository,
-                MemoryType.EVENT_LOG: EventLogEsRepository,
-                MemoryType.EPISODIC_MEMORY: EpisodicMemoryEsRepository,
-            }
 
             # Convert query string to search word list
             # Use jieba for search mode word segmentation, then filter stopwords
@@ -496,9 +495,8 @@ class MemoryManager:
             logger.debug(f"Milvus vector search returned {len(search_results)} results")
 
             # Add memory_type, search_source to results (Milvus already has 'score')
-            mem_type_value = retrieve_mem_request.memory_types[0].value if retrieve_mem_request.memory_types else 'episodic_memory'
             for r in search_results:
-                r['memory_type'] = mem_type_value
+                r['memory_type'] = mem_type.value
                 r['_search_source'] = RetrieveMethod.VECTOR.value
                 r['id'] = r.get('id', '')  # Ensure id field exists
                 r['score'] = r.get('score')  # Unified score field
@@ -557,7 +555,7 @@ class MemoryManager:
 
     async def get_vector_search_results(
         self, retrieve_mem_request: 'RetrieveMemRequest'
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         try:
             # Get parameters from Request
             logger.debug(
@@ -657,10 +655,8 @@ class MemoryManager:
                     radius=retrieve_mem_request.radius,
                 )
             
-            # Add memory_type, _search_source markers (Milvus already has 'score')
-            mem_type_value = retrieve_mem_request.memory_types[0].value if retrieve_mem_request.memory_types else 'episodic_memory'
             for r in search_results:
-                r['memory_type'] = mem_type_value
+                r['memory_type'] = mem_type.value
                 r['_search_source'] = RetrieveMethod.VECTOR.value
                 # Milvus already uses 'score', no need to rename
             
