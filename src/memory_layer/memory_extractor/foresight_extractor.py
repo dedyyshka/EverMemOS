@@ -17,6 +17,7 @@ from .base_memory_extractor import MemoryExtractor, MemoryExtractRequest
 from api_specs.memory_types import MemoryType, MemCell, Memory, Foresight
 from agentic_layer.vectorize_service import get_vectorize_service
 from core.observation.logger import get_logger
+from common_utils.datetime_utils import get_now_with_timezone
 
 logger = get_logger(__name__)
 
@@ -364,7 +365,7 @@ class ForesightExtractor(MemoryExtractor):
                     memory_item = Foresight(
                         memory_type=MemoryType.FORESIGHT,
                         user_id=user_id,
-                        timestamp=timestamp or datetime.now(),
+                        timestamp=timestamp or get_now_with_timezone(),
                         ori_event_id_list=ori_event_id_list or [],
                         group_id=group_id,
                         foresight=item_data['foresight'],
