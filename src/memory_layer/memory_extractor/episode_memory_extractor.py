@@ -53,13 +53,13 @@ class EpisodeMemoryExtractor(MemoryExtractor):
         custom_instructions: Optional[str] = None,
     ):
         """
-        初始化 Episode 提取器
+        Initialize Episode Extractor
         
         Args:
-            llm_provider: LLM 提供者
-            episode_prompt: 可选的自定义个人 Episode 提示词（不提供则使用默认）
-            group_episode_prompt: 可选的自定义群组 Episode 提示词（不提供则使用默认）
-            custom_instructions: 可选的自定义指令（不提供则使用默认）
+            llm_provider: LLM provider
+            episode_prompt: Optional custom personal Episode prompt (uses default if not provided)
+            group_episode_prompt: Optional custom group Episode prompt (uses default if not provided)
+            custom_instructions: Optional custom instructions (uses default if not provided)
         """
         super().__init__(MemoryType.EPISODIC_MEMORY)
         self.llm_provider = llm_provider
