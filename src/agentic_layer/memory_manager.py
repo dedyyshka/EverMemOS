@@ -34,7 +34,7 @@ from infra_layer.adapters.out.search.repository.event_log_es_repository import (
 )
 from core.observation.tracing.decorators import trace_logger
 from core.nlp.stopwords_utils import filter_stopwords
-from common_utils.datetime_utils import from_iso_format, get_now_with_timezone
+from common_utils.datetime_utils import from_iso_format, get_now_with_timezone, to_iso_format
 from infra_layer.adapters.out.persistence.repository.memcell_raw_repository import (
     MemCellRawRepository,
 )

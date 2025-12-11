@@ -11,6 +11,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 
+from common_utils.datetime_utils import get_now_with_timezone
+
 
 class RetrieveMethod(str, Enum):
     """Enumeration of retrieval methods"""
@@ -97,8 +99,8 @@ class ProfileModel:
     occupation: Optional[str] = None
     interests: List[str] = field(default_factory=list)
     personality_traits: Dict[str, float] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -112,8 +114,8 @@ class PreferenceModel:
     preference_key: str
     preference_value: Any
     confidence_score: float = 1.0
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -129,11 +131,11 @@ class EpisodicMemoryModel:
     timestamp: Optional[datetime] = None
     participants: List[str] = field(default_factory=list)
     location: Optional[str] = None
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=get_now_with_timezone)
     end_time: Optional[datetime] = None
     key_events: List[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
     extend: Optional[Dict[str, Any]] = None
     memcell_event_id_list: Optional[List[str]] = None
@@ -152,8 +154,8 @@ class ForesightModel:
     related_concepts: List[str] = field(default_factory=list)
     confidence_score: float = 1.0
     source: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -168,8 +170,8 @@ class EntityModel:
     description: str
     attributes: Dict[str, Any] = field(default_factory=dict)
     aliases: List[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -184,8 +186,8 @@ class RelationModel:
     relation_type: str
     relation_description: str
     strength: float = 1.0
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -199,10 +201,10 @@ class BehaviorHistoryModel:
     action_description: str
     context: Dict[str, Any] = field(default_factory=dict)
     result: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=get_now_with_timezone)
     session_id: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -247,8 +249,8 @@ class CoreMemoryModel:
 
     # ==================== Common fields ====================
     extend: Optional[Dict[str, Any]] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -276,8 +278,8 @@ class EventLogModel:
     extend: Optional[Dict[str, Any]] = None
 
     # Common timestamps
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
@@ -307,8 +309,8 @@ class ForesightRecordModel:
     extend: Optional[Dict[str, Any]] = None
 
     # Common timestamps
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=get_now_with_timezone)
+    updated_at: datetime = field(default_factory=get_now_with_timezone)
     metadata: Metadata = field(default_factory=Metadata)
 
 
