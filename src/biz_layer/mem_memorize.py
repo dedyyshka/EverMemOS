@@ -3,7 +3,7 @@ import random
 import time
 import json
 import traceback
-from api_specs.dtos.memory_command import MemorizeRequest, MemorizeOfflineRequest
+from api_specs.dtos.memory_command import MemorizeRequest
 from memory_layer.memory_manager import MemoryManager
 from api_specs.memory_types import (
     MemoryType,
@@ -57,12 +57,10 @@ from collections import defaultdict
 from common_utils.datetime_utils import (
     get_now_with_timezone,
     to_iso_format,
-    from_iso_format,
 )
 from memory_layer.memcell_extractor.base_memcell_extractor import StatusResult
 import traceback
 
-from core.lock.redis_distributed_lock import distributed_lock
 from core.observation.logger import get_logger
 from infra_layer.adapters.out.search.elasticsearch.converter.episodic_memory_converter import (
     EpisodicMemoryConverter,
@@ -70,31 +68,14 @@ from infra_layer.adapters.out.search.elasticsearch.converter.episodic_memory_con
 from infra_layer.adapters.out.search.milvus.converter.episodic_memory_milvus_converter import (
     EpisodicMemoryMilvusConverter,
 )
-from infra_layer.adapters.out.search.elasticsearch.converter.foresight_converter import (
-    ForesightConverter,
-)
-from infra_layer.adapters.out.search.milvus.converter.foresight_milvus_converter import (
-    ForesightMilvusConverter,
-)
-from infra_layer.adapters.out.search.elasticsearch.converter.event_log_converter import (
-    EventLogConverter,
-)
-from infra_layer.adapters.out.search.milvus.converter.event_log_milvus_converter import (
-    EventLogMilvusConverter,
-)
 from infra_layer.adapters.out.search.repository.episodic_memory_milvus_repository import (
     EpisodicMemoryMilvusRepository,
 )
 from infra_layer.adapters.out.search.repository.episodic_memory_es_repository import (
     EpisodicMemoryEsRepository,
 )
-from infra_layer.adapters.out.search.repository.foresight_milvus_repository import (
-    ForesightMilvusRepository,
-)
-from infra_layer.adapters.out.search.repository.event_log_milvus_repository import (
-    EventLogMilvusRepository,
-)
 from biz_layer.mem_sync import MemorySyncService
+from core.context.context import get_current_app_info
 
 logger = get_logger(__name__)
 
@@ -1277,7 +1258,6 @@ async def memorize(request: MemorizeRequest) -> int:
     logger.info(f"[mem_memorize] Successfully saved MemCell: {memcell.event_id}")
 
     # Get current request_id
-    from core.context.context import get_current_app_info
 
     app_info = get_current_app_info()
     request_id = app_info.get('request_id')
