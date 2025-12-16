@@ -285,7 +285,11 @@ class KafkaProducerFactory:
         return producer
 
     async def get_producer(
-        self, kafka_servers: List[str], force_new: bool = False, **kwargs
+        self,
+        kafka_servers: List[str],
+        force_new: bool = False,
+        test_topic: Optional[str] = None,
+        **kwargs,
     ) -> AIOKafkaProducer:
         """
         Get AIOKafkaProducer instance
@@ -293,6 +297,7 @@ class KafkaProducerFactory:
         Args:
             kafka_servers: List of Kafka servers
             force_new: Whether to force creation of a new instance, default False
+            test_topic: If provided, test connection by fetching partitions for this topic
             **kwargs: Additional configuration parameters
 
         Returns:
@@ -323,6 +328,21 @@ class KafkaProducerFactory:
                     kafka_servers=kafka_servers, **kwargs
                 )
                 self._producers[cache_key] = producer
+
+                # Test connection if test_topic provided
+                if test_topic:
+                    try:
+                        partitions = await asyncio.wait_for(
+                            producer.partitions_for(test_topic), timeout=10.0
+                        )
+                        logger.info(
+                            "Connection test passed: topic %s has %d partitions",
+                            test_topic,
+                            len(partitions) if partitions else 0,
+                        )
+                    except Exception as e:
+                        logger.error("Connection test failed for %s: %s", producer_name, e)
+                        raise
 
                 logger.info(
                     "Producer %s created and cached with key %s",
