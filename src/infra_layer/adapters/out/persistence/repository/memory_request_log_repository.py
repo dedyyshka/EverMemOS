@@ -2,8 +2,8 @@
 """
 MemoryRequestLog Repository
 
-Memory 请求日志数据访问层，提供 memories 请求记录的 CRUD 操作。
-用于替代 conversation_data 的功能。
+Memory request log data access layer, providing CRUD operations for memories request records.
+Used as a replacement for the conversation_data functionality.
 """
 
 from datetime import datetime
@@ -22,16 +22,16 @@ logger = get_logger(__name__)
 @repository("memory_request_log_repository", primary=True)
 class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
     """
-    Memory 请求日志 Repository
+    Memory Request Log Repository
 
-    提供 memories 接口请求记录的 CRUD 操作和查询功能。
-    可作为 conversation_data 的替代实现。
+    Provides CRUD operations and query functionality for memories API request records.
+    Can be used as an alternative implementation for conversation_data.
     """
 
     def __init__(self):
         super().__init__(MemoryRequestLog)
 
-    # ==================== 保存方法 ====================
+    # ==================== Save Methods ====================
 
     async def save(
         self,
@@ -39,42 +39,42 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         session: Optional[AsyncClientSession] = None,
     ) -> Optional[MemoryRequestLog]:
         """
-        保存 Memory 请求日志
+        Save Memory request log
 
         Args:
-            memory_request_log: MemoryRequestLog 对象
-            session: 可选的 MongoDB session
+            memory_request_log: MemoryRequestLog object
+            session: Optional MongoDB session
 
         Returns:
-            保存后的 MemoryRequestLog 或 None
+            Saved MemoryRequestLog or None
         """
         try:
             await memory_request_log.insert(session=session)
             logger.debug(
-                "✅ 保存 Memory 请求日志成功: id=%s, group_id=%s, request_id=%s",
+                "Memory request log saved successfully: id=%s, group_id=%s, request_id=%s",
                 memory_request_log.id,
                 memory_request_log.group_id,
                 memory_request_log.request_id,
             )
             return memory_request_log
         except Exception as e:
-            logger.error("❌ 保存 Memory 请求日志失败: %s", e)
+            logger.error("Failed to save Memory request log: %s", e)
             return None
 
-    # ==================== 查询方法 ====================
+    # ==================== Query Methods ====================
 
     async def get_by_request_id(
         self, request_id: str, session: Optional[AsyncClientSession] = None
     ) -> Optional[MemoryRequestLog]:
         """
-        根据请求 ID 获取 Memory 请求日志
+        Get Memory request log by request ID
 
         Args:
-            request_id: 请求 ID
-            session: 可选的 MongoDB session
+            request_id: Request ID
+            session: Optional MongoDB session
 
         Returns:
-            MemoryRequestLog 或 None
+            MemoryRequestLog or None
         """
         try:
             result = await MemoryRequestLog.find_one(
@@ -82,7 +82,7 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             )
             return result
         except Exception as e:
-            logger.error("❌ 根据请求 ID 获取 Memory 请求日志失败: %s", e)
+            logger.error("Failed to get Memory request log by request ID: %s", e)
             return None
 
     async def find_by_group_id(
@@ -95,27 +95,27 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         session: Optional[AsyncClientSession] = None,
     ) -> List[MemoryRequestLog]:
         """
-        根据 group_id 查询 Memory 请求日志
+        Query Memory request logs by group_id
 
         Args:
-            group_id: 会话组 ID
-            start_time: 开始时间
-            end_time: 结束时间
-            limit: 返回数量限制
-            sync_status: 同步状态过滤（默认 0=窗口累积中，None=不过滤）
-                - -1: 只是 log 记录
-                -  0: 窗口累积中
-                -  1: 已全部使用
-                - None: 不过滤，返回所有状态
-            session: 可选的 MongoDB session
+            group_id: Conversation group ID
+            start_time: Start time
+            end_time: End time
+            limit: Maximum number of records to return
+            sync_status: Sync status filter (default 0=in window accumulation, None=no filter)
+                - -1: Just a log record
+                -  0: In window accumulation
+                -  1: Already fully used
+                - None: No filter, return all statuses
+            session: Optional MongoDB session
 
         Returns:
-            MemoryRequestLog 列表
+            List of MemoryRequestLog
         """
         try:
             query = {"group_id": group_id}
 
-            # 按状态过滤
+            # Filter by status
             if sync_status is not None:
                 query["sync_status"] = sync_status
 
@@ -129,19 +129,92 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
 
             results = (
                 await MemoryRequestLog.find(query, session=session)
-                .sort([("created_at", 1)])  # 按时间升序，早的在前
+                .sort([("created_at", 1)])  # Ascending order by time, oldest first
                 .limit(limit)
                 .to_list()
             )
             logger.debug(
-                "✅ 根据 group_id 查询 Memory 请求日志: group_id=%s, sync_status=%s, count=%d",
+                "Query Memory request logs by group_id: group_id=%s, sync_status=%s, count=%d",
                 group_id,
                 sync_status,
                 len(results),
             )
             return results
         except Exception as e:
-            logger.error("❌ 根据 group_id 查询 Memory 请求日志失败: %s", e)
+            logger.error("Failed to query Memory request logs by group_id: %s", e)
+            return []
+
+    async def find_by_group_id_with_statuses(
+        self,
+        group_id: str,
+        sync_status_list: List[int],
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 100,
+        ascending: bool = True,
+        session: Optional[AsyncClientSession] = None,
+    ) -> List[MemoryRequestLog]:
+        """
+        Query Memory request logs by group_id with multiple sync_status values
+
+        This method is designed to handle edge cases by allowing queries for
+        multiple sync_status values at once (e.g., both -1 and 0).
+
+        Args:
+            group_id: Conversation group ID
+            sync_status_list: List of sync_status values to filter by
+                - [-1]: Just log records
+                - [0]: In window accumulation
+                - [1]: Already fully used
+                - [-1, 0]: Both pending and accumulating (for edge case handling)
+            start_time: Start time (optional)
+            end_time: End time (optional)
+            limit: Maximum number of records to return
+            ascending: If True (default), sort by created_at ascending (oldest first);
+                       if False, sort descending (newest first)
+            session: Optional MongoDB session
+
+        Returns:
+            List of MemoryRequestLog
+        """
+        try:
+            query = {"group_id": group_id}
+
+            # Filter by multiple statuses
+            if sync_status_list:
+                if len(sync_status_list) == 1:
+                    query["sync_status"] = sync_status_list[0]
+                else:
+                    query["sync_status"] = {"$in": sync_status_list}
+
+            if start_time:
+                query["created_at"] = {"$gte": start_time}
+            if end_time:
+                if "created_at" in query:
+                    query["created_at"]["$lte"] = end_time
+                else:
+                    query["created_at"] = {"$lte": end_time}
+
+            # Determine sort order
+            sort_order = 1 if ascending else -1
+
+            results = (
+                await MemoryRequestLog.find(query, session=session)
+                .sort([("created_at", sort_order)])
+                .limit(limit)
+                .to_list()
+            )
+            logger.debug(
+                "Query Memory request logs by group_id with statuses: group_id=%s, sync_status_list=%s, count=%d",
+                group_id,
+                sync_status_list,
+                len(results),
+            )
+            return results
+        except Exception as e:
+            logger.error(
+                "Failed to query Memory request logs by group_id with statuses: %s", e
+            )
             return []
 
     async def find_by_user_id(
@@ -151,15 +224,15 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         session: Optional[AsyncClientSession] = None,
     ) -> List[MemoryRequestLog]:
         """
-        根据用户 ID 查询 Memory 请求日志
+        Query Memory request logs by user ID
 
         Args:
-            user_id: 用户 ID
-            limit: 返回数量限制
-            session: 可选的 MongoDB session
+            user_id: User ID
+            limit: Maximum number of records to return
+            session: Optional MongoDB session
 
         Returns:
-            MemoryRequestLog 列表
+            List of MemoryRequestLog
         """
         try:
             results = (
@@ -169,27 +242,27 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
                 .to_list()
             )
             logger.debug(
-                "✅ 根据用户 ID 查询 Memory 请求日志: user_id=%s, count=%d",
+                "Query Memory request logs by user_id: user_id=%s, count=%d",
                 user_id,
                 len(results),
             )
             return results
         except Exception as e:
-            logger.error("❌ 根据用户 ID 查询 Memory 请求日志失败: %s", e)
+            logger.error("Failed to query Memory request logs by user_id: %s", e)
             return []
 
     async def delete_by_group_id(
         self, group_id: str, session: Optional[AsyncClientSession] = None
     ) -> int:
         """
-        根据 group_id 删除 Memory 请求日志
+        Delete Memory request logs by group_id
 
         Args:
-            group_id: 会话组 ID
-            session: 可选的 MongoDB session
+            group_id: Conversation group ID
+            session: Optional MongoDB session
 
         Returns:
-            删除的记录数
+            Number of deleted records
         """
         try:
             result = await MemoryRequestLog.find(
@@ -197,42 +270,44 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             ).delete()
             deleted_count = result.deleted_count if result else 0
             logger.info(
-                "✅ 删除 Memory 请求日志: group_id=%s, deleted=%d",
+                "Deleted Memory request logs: group_id=%s, deleted=%d",
                 group_id,
                 deleted_count,
             )
             return deleted_count
         except Exception as e:
             logger.error(
-                "❌ 删除 Memory 请求日志失败: group_id=%s, error=%s", group_id, e
+                "Failed to delete Memory request logs: group_id=%s, error=%s",
+                group_id,
+                e,
             )
             return 0
 
-    # ==================== 同步状态管理 ====================
-    # sync_status 状态流转:
-    # -1 (log记录) -> 0 (窗口累积) -> 1 (已使用)
+    # ==================== Sync Status Management ====================
+    # sync_status state transitions:
+    # -1 (log record) -> 0 (window accumulation) -> 1 (used)
     #
-    # - save_conversation_data: -1 -> 0 (确认进入窗口累积)
-    # - delete_conversation_data: 0 -> 1 (标记已全部使用)
+    # - save_conversation_data: -1 -> 0 (confirm enters window accumulation)
+    # - delete_conversation_data: 0 -> 1 (mark as fully used)
 
     async def confirm_accumulation_by_group_id(
         self, group_id: str, session: Optional[AsyncClientSession] = None
     ) -> int:
         """
-        将指定 group_id 的 log 记录确认为窗口累积状态
+        Confirm log records for the specified group_id as window accumulation state
 
-        批量更新 sync_status: -1 -> 0，用于 save_conversation_data。
-        使用 (group_id, sync_status) 复合索引，高效查询。
+        Batch update sync_status: -1 -> 0, used for save_conversation_data.
+        Uses (group_id, sync_status) composite index for efficient querying.
 
-        注意：此方法会更新该 group 下所有 sync_status=-1 的记录，
-        如需精确控制，请使用 confirm_accumulation_by_message_ids。
+        Note: This method updates all sync_status=-1 records under this group.
+        For precise control, use confirm_accumulation_by_message_ids.
 
         Args:
-            group_id: 会话组 ID
-            session: 可选的 MongoDB session
+            group_id: Conversation group ID
+            session: Optional MongoDB session
 
         Returns:
-            更新的记录数
+            Number of updated records
         """
         try:
             collection = MemoryRequestLog.get_pymongo_collection()
@@ -243,11 +318,17 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             )
             modified_count = result.modified_count if result else 0
             logger.info(
-                "✅ 确认窗口累积: group_id=%s, modified=%d", group_id, modified_count
+                "Confirmed window accumulation: group_id=%s, modified=%d",
+                group_id,
+                modified_count,
             )
             return modified_count
         except Exception as e:
-            logger.error("❌ 确认窗口累积失败: group_id=%s, error=%s", group_id, e)
+            logger.error(
+                "Failed to confirm window accumulation: group_id=%s, error=%s",
+                group_id,
+                e,
+            )
             return 0
 
     async def confirm_accumulation_by_message_ids(
@@ -257,21 +338,22 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         session: Optional[AsyncClientSession] = None,
     ) -> int:
         """
-        将指定 message_id 列表的 log 记录确认为窗口累积状态
+        Confirm log records for the specified message_id list as window accumulation state
 
-        精确更新：只更新指定 message_id 的记录，避免误更新其他并发请求的数据。
+        Precise update: only update records with specified message_id to avoid
+        accidentally updating data from other concurrent requests.
         sync_status: -1 -> 0
 
         Args:
-            group_id: 会话组 ID（用于额外校验）
-            message_ids: 要更新的 message_id 列表
-            session: 可选的 MongoDB session
+            group_id: Conversation group ID (for additional validation)
+            message_ids: List of message_ids to update
+            session: Optional MongoDB session
 
         Returns:
-            更新的记录数
+            Number of updated records
         """
         if not message_ids:
-            logger.debug("message_ids 为空，跳过更新")
+            logger.debug("message_ids is empty, skipping update")
             return 0
 
         try:
@@ -287,7 +369,7 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             )
             modified_count = result.modified_count if result else 0
             logger.info(
-                "✅ 确认窗口累积(精确): group_id=%s, message_ids=%d, modified=%d",
+                "Confirmed window accumulation (precise): group_id=%s, message_ids=%d, modified=%d",
                 group_id,
                 len(message_ids),
                 modified_count,
@@ -295,7 +377,9 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             return modified_count
         except Exception as e:
             logger.error(
-                "❌ 确认窗口累积(精确)失败: group_id=%s, error=%s", group_id, e
+                "Failed to confirm window accumulation (precise): group_id=%s, error=%s",
+                group_id,
+                e,
             )
             return 0
 
@@ -303,21 +387,22 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         self, group_id: str, session: Optional[AsyncClientSession] = None
     ) -> int:
         """
-        将指定 group_id 的未使用数据标记为已使用
+        Mark unused data for the specified group_id as used
 
-        批量更新 sync_status: -1 或 0 -> 1，用于 delete_conversation_data（边界检测后）。
-        - -1: 刚保存的 log 记录（当前请求的消息）
-        -  0: 已确认的窗口累积数据（之前累积的消息）
-        两者都标记为 1（已使用）。
+        Batch update sync_status: -1 or 0 -> 1, used for delete_conversation_data
+        (after boundary detection).
+        - -1: Just saved log records (messages from current request)
+        -  0: Already confirmed window accumulation data (messages accumulated before)
+        Both are marked as 1 (used).
 
-        使用 (group_id, sync_status) 复合索引，高效查询。
+        Uses (group_id, sync_status) composite index for efficient querying.
 
         Args:
-            group_id: 会话组 ID
-            session: 可选的 MongoDB session
+            group_id: Conversation group ID
+            session: Optional MongoDB session
 
         Returns:
-            更新的记录数
+            Number of updated records
         """
         try:
             collection = MemoryRequestLog.get_pymongo_collection()
@@ -328,9 +413,9 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
             )
             modified_count = result.modified_count if result else 0
             logger.info(
-                "✅ 标记为已使用: group_id=%s, modified=%d", group_id, modified_count
+                "Marked as used: group_id=%s, modified=%d", group_id, modified_count
             )
             return modified_count
         except Exception as e:
-            logger.error("❌ 标记为已使用失败: group_id=%s, error=%s", group_id, e)
+            logger.error("Failed to mark as used: group_id=%s, error=%s", group_id, e)
             return 0

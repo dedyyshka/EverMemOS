@@ -2,7 +2,7 @@
 """
 ConversationDataRepository interface and implementation
 
-基于 MemoryRequestLog 实现的会话数据存储，替代原有的 Redis 实现。
+Conversation data storage based on MemoryRequestLog, replacing the original Redis implementation.
 """
 
 from abc import ABC, abstractmethod
@@ -31,9 +31,23 @@ class ConversationDataRepository(ABC):
 
     @abstractmethod
     async def save_conversation_data(
-        self, raw_data_list: List[RawData], group_id: str
+        self,
+        raw_data_list: List[RawData],
+        group_id: str,
+        auto_confirm_pending: bool = True,
     ) -> bool:
-        """Save conversation data"""
+        """
+        Save conversation data
+
+        Args:
+            raw_data_list: List of RawData to save
+            group_id: Group ID
+            auto_confirm_pending: If True (default), also update all sync_status=-1
+                                  records to 0 for this group to handle edge cases
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
         pass
 
     @abstractmethod
@@ -43,8 +57,22 @@ class ConversationDataRepository(ABC):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         limit: int = 100,
+        include_pending: bool = True,
     ) -> List[RawData]:
-        """Get conversation data"""
+        """
+        Get conversation data
+
+        Args:
+            group_id: Group ID
+            start_time: Start time (ISO format string)
+            end_time: End time (ISO format string)
+            limit: Maximum number of records to return
+            include_pending: If True (default), also include sync_status=-1 records
+                             along with sync_status=0 records to handle edge cases
+
+        Returns:
+            List[RawData]: List of conversation data
+        """
         pass
 
     @abstractmethod
@@ -60,6 +88,25 @@ class ConversationDataRepository(ABC):
         """
         pass
 
+    @abstractmethod
+    async def fetch_unprocessed_conversation_data(
+        self, group_id: str, limit: int = 100
+    ) -> List[RawData]:
+        """
+        Fetch unprocessed conversation data (sync_status=-1 or 0)
+
+        Unlike get_conversation_data, this method does not have time range filters
+        and returns results in ascending order (oldest first).
+
+        Args:
+            group_id: Group ID
+            limit: Maximum number of records to return (in ascending order)
+
+        Returns:
+            List[RawData]: List of unprocessed conversation data
+        """
+        pass
+
 
 # ==================== Implementation ====================
 
@@ -67,51 +114,58 @@ class ConversationDataRepository(ABC):
 @repository("conversation_data_repo", primary=True)
 class ConversationDataRepositoryImpl(ConversationDataRepository):
     """
-    基于 MemoryRequestLog 的 ConversationDataRepository 实现
+    ConversationDataRepository implementation based on MemoryRequestLog
 
-    复用 MemoryRequestLog 存储会话数据，将 RawData 与 MemoryRequestLog 相互转换。
-    数据通过 RequestHistoryEvent 监听器自动保存到 MemoryRequestLog。
+    Reuses MemoryRequestLog storage for conversation data, converting between RawData
+    and MemoryRequestLog. Data is automatically saved to MemoryRequestLog through
+    the RequestHistoryEvent listener.
     """
 
     def __init__(self):
         self._repo: Optional[MemoryRequestLogRepository] = None
 
     def _get_repo(self) -> MemoryRequestLogRepository:
-        """懒加载获取 MemoryRequestLogRepository"""
+        """Lazy load MemoryRequestLogRepository"""
         if self._repo is None:
             self._repo = get_bean("memory_request_log_repository")
         return self._repo
 
-    # ==================== ConversationDataRepository 接口实现 ====================
+    # ==================== ConversationDataRepository Interface Implementation ====================
 
     async def save_conversation_data(
-        self, raw_data_list: List[RawData], group_id: str
+        self,
+        raw_data_list: List[RawData],
+        group_id: str,
+        auto_confirm_pending: bool = True,
     ) -> bool:
         """
-        确认会话数据进入窗口累积
+        Confirm conversation data enters window accumulation
 
-        将 sync_status = -1 (log 记录) 更新为 sync_status = 0 (窗口累积中)。
-        数据本身已通过 RequestHistoryEvent 监听器自动保存到 MemoryRequestLog，
-        此方法用于确认这些数据进入窗口累积状态。
+        Updates sync_status = -1 (log record) to sync_status = 0 (in window accumulation).
+        The data itself is automatically saved to MemoryRequestLog through the
+        RequestHistoryEvent listener; this method confirms these data entries
+        enter the window accumulation state.
 
-        更新策略：
-        - 如果 raw_data_list 中有 data_id（即 message_id），则精确更新这些记录
-        - 否则回退到按 group_id 更新所有 sync_status=-1 的记录
+        Update strategy:
+        - If raw_data_list contains data_id (i.e., message_id), precisely update these records
+        - Otherwise, fall back to updating all sync_status=-1 records by group_id
 
-        sync_status 状态流转:
-        - -1: 只是 log 记录（刚通过 listener 保存的原始请求）
-        -  0: 窗口累积中（通过此方法确认进入累积窗口）
-        -  1: 已全部使用过（通过 delete_conversation_data 标记）
+        sync_status state transitions:
+        - -1: Just a log record (raw request just saved via listener)
+        -  0: In window accumulation (confirmed via this method)
+        -  1: Already fully used (marked via delete_conversation_data)
 
         Args:
-            raw_data_list: RawData 列表，用于提取 message_id 进行精确更新
-            group_id: 会话组 ID
+            raw_data_list: RawData list, used to extract message_id for precise updates
+            group_id: Conversation group ID
+            auto_confirm_pending: If True (default), also confirm all pending (-1) records
+                                  for this group to handle edge cases
 
         Returns:
-            bool: 操作成功返回 True，否则返回 False
+            bool: True if operation succeeds, False otherwise
         """
         logger.info(
-            "确认会话数据进入窗口累积: group_id=%s, data_count=%d",
+            "Confirming conversation data enters window accumulation: group_id=%s, data_count=%d",
             group_id,
             len(raw_data_list) if raw_data_list else 0,
         )
@@ -119,21 +173,36 @@ class ConversationDataRepositoryImpl(ConversationDataRepository):
         try:
             repo = self._get_repo()
 
-            # 提取 message_id 列表（过滤掉空值）
+            # Extract message_id list (filter out empty values)
             message_ids = [r.data_id for r in (raw_data_list or []) if r.data_id]
 
             if message_ids:
-                # 精确更新：只更新指定 message_id 的记录
+                # Precise update: only update records with specified message_id
                 modified_count = await repo.confirm_accumulation_by_message_ids(
                     group_id, message_ids
                 )
+
+                # If auto_confirm_pending is True, also confirm all remaining pending records
+                if auto_confirm_pending:
+                    extra_modified = await repo.confirm_accumulation_by_group_id(
+                        group_id
+                    )
+                    if extra_modified > 0:
+                        logger.info(
+                            "Auto-confirmed additional pending records: group_id=%s, extra_modified=%d",
+                            group_id,
+                            extra_modified,
+                        )
+                        modified_count += extra_modified
             else:
-                # 兜底：按 group_id 更新所有 sync_status=-1 的记录
-                logger.debug("raw_data_list 中没有 data_id，回退到按 group_id 更新")
+                # Fallback: update all sync_status=-1 records by group_id
+                logger.debug(
+                    "No data_id in raw_data_list, falling back to update by group_id"
+                )
                 modified_count = await repo.confirm_accumulation_by_group_id(group_id)
 
             logger.info(
-                "✅ 确认窗口累积完成: group_id=%s, message_ids=%d, modified=%d",
+                "Window accumulation confirmation completed: group_id=%s, message_ids=%d, modified=%d",
                 group_id,
                 len(message_ids),
                 modified_count,
@@ -141,7 +210,11 @@ class ConversationDataRepositoryImpl(ConversationDataRepository):
             return True
 
         except Exception as e:
-            logger.error("❌ 确认窗口累积失败: group_id=%s, error=%s", group_id, e)
+            logger.error(
+                "Window accumulation confirmation failed: group_id=%s, error=%s",
+                group_id,
+                e,
+            )
             return False
 
     async def get_conversation_data(
@@ -150,91 +223,111 @@ class ConversationDataRepositoryImpl(ConversationDataRepository):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         limit: int = 100,
+        include_pending: bool = True,
     ) -> List[RawData]:
         """
-        获取窗口累积中的会话数据
+        Get conversation data in window accumulation
 
-        查询 sync_status = 0 (窗口累积中) 的 MemoryRequestLog 并转换为 RawData。
-        只返回已确认进入累积窗口但尚未被使用的数据。
+        Queries MemoryRequestLog with sync_status = 0 (in window accumulation) and
+        converts to RawData. Only returns data that has been confirmed to enter
+        the accumulation window but has not yet been used.
 
-        sync_status 状态说明:
-        - -1: 只是 log 记录（不返回）
-        -  0: 窗口累积中（返回这些数据）
-        -  1: 已全部使用过（不返回）
+        sync_status state description:
+        - -1: Just a log record (not returned by default, unless include_pending=True)
+        -  0: In window accumulation (returned)
+        -  1: Already fully used (not returned)
 
         Args:
-            group_id: 会话组 ID
-            start_time: 开始时间（ISO 格式字符串）
-            end_time: 结束时间（ISO 格式字符串）
-            limit: 返回数量限制
+            group_id: Conversation group ID
+            start_time: Start time (ISO format string)
+            end_time: End time (ISO format string)
+            limit: Maximum number of records to return
+            include_pending: If True (default), also include sync_status=-1 records
+                             along with sync_status=0 records to handle edge cases
 
         Returns:
-            List[RawData]: 会话数据列表
+            List[RawData]: List of conversation data
         """
         logger.info(
-            "开始获取会话数据: group_id=%s, start_time=%s, end_time=%s, limit=%d",
+            "Fetching conversation data: group_id=%s, start_time=%s, end_time=%s, limit=%d, include_pending=%s",
             group_id,
             start_time,
             end_time,
             limit,
+            include_pending,
         )
 
         try:
             repo = self._get_repo()
 
-            # 转换时间格式
+            # Convert time format
             start_dt = (
                 _normalize_datetime_for_storage(start_time) if start_time else None
             )
             end_dt = _normalize_datetime_for_storage(end_time) if end_time else None
 
-            # 查询 MemoryRequestLog
-            logs = await repo.find_by_group_id(
-                group_id=group_id, start_time=start_dt, end_time=end_dt, limit=limit
+            # Determine which sync_status values to query
+            if include_pending:
+                # Include both pending (-1) and accumulating (0) records
+                sync_status_list = [-1, 0]
+            else:
+                # Only include accumulating (0) records
+                sync_status_list = [0]
+
+            # Query MemoryRequestLog with multiple sync_status values
+            logs = await repo.find_by_group_id_with_statuses(
+                group_id=group_id,
+                sync_status_list=sync_status_list,
+                start_time=start_dt,
+                end_time=end_dt,
+                limit=limit,
             )
 
-            # 使用 mapper 转换为 RawData 列表
+            # Use mapper to convert to RawData list
             raw_data_list = MemoryRequestLogMapper.to_raw_data_list(logs)
 
             logger.info(
-                "✅ 获取会话数据完成: group_id=%s, count=%d",
+                "Conversation data fetch completed: group_id=%s, count=%d",
                 group_id,
                 len(raw_data_list),
             )
             return raw_data_list
 
         except Exception as e:
-            logger.error("❌ 获取会话数据失败: group_id=%s, error=%s", group_id, e)
+            logger.error(
+                "Conversation data fetch failed: group_id=%s, error=%s", group_id, e
+            )
             return []
 
     async def delete_conversation_data(self, group_id: str) -> bool:
         """
-        标记指定会话组的累积数据为已使用
+        Mark accumulated data for the specified conversation group as used
 
-        将 sync_status = 0 (窗口累积中) 更新为 sync_status = 1 (已全部使用)。
-        注意：此方法不会真正删除数据，而是更新 sync_status 状态。
-        这样可以保留历史数据用于审计和重放，同时不影响后续查询。
+        Updates sync_status = 0 (in window accumulation) to sync_status = 1 (fully used).
+        Note: This method does not actually delete data, but updates the sync_status state.
+        This preserves historical data for auditing and replay while not affecting
+        subsequent queries.
 
-        sync_status 状态流转:
-        - -1: 只是 log 记录
-        -  0: 窗口累积中（通过 save_conversation_data 确认）
-        -  1: 已全部使用过（通过此方法标记，边界检测后调用）
+        sync_status state transitions:
+        - -1: Just a log record
+        -  0: In window accumulation (confirmed via save_conversation_data)
+        -  1: Already fully used (marked via this method, called after boundary detection)
 
         Args:
-            group_id: 会话组 ID
+            group_id: Conversation group ID
 
         Returns:
-            bool: 操作成功返回 True，否则返回 False
+            bool: True if operation succeeds, False otherwise
         """
-        logger.info("开始标记会话数据为已使用: group_id=%s", group_id)
+        logger.info("Marking conversation data as used: group_id=%s", group_id)
 
         try:
             repo = self._get_repo()
-            # 将 sync_status: 0 -> 1
+            # Update sync_status: 0 -> 1
             modified_count = await repo.mark_as_used_by_group_id(group_id)
 
             logger.info(
-                "✅ 标记会话数据为已使用完成: group_id=%s, modified=%d",
+                "Conversation data marked as used: group_id=%s, modified=%d",
                 group_id,
                 modified_count,
             )
@@ -242,6 +335,66 @@ class ConversationDataRepositoryImpl(ConversationDataRepository):
 
         except Exception as e:
             logger.error(
-                "❌ 标记会话数据为已使用失败: group_id=%s, error=%s", group_id, e
+                "Failed to mark conversation data as used: group_id=%s, error=%s",
+                group_id,
+                e,
             )
             return False
+
+    async def fetch_unprocessed_conversation_data(
+        self, group_id: str, limit: int = 100
+    ) -> List[RawData]:
+        """
+        Fetch unprocessed conversation data (sync_status=-1 or 0)
+
+        Unlike get_conversation_data, this method:
+        - Does not have start_time and end_time filters
+        - Returns results in ascending order (oldest first) with limit applied
+
+        This is useful for fetching all pending/accumulating messages that need
+        to be processed, without time range restrictions.
+
+        Args:
+            group_id: Conversation group ID
+            limit: Maximum number of records to return (in ascending order, oldest first)
+
+        Returns:
+            List[RawData]: List of unprocessed conversation data
+        """
+        logger.info(
+            "Fetching unprocessed conversation data: group_id=%s, limit=%d",
+            group_id,
+            limit,
+        )
+
+        try:
+            repo = self._get_repo()
+
+            # Query both pending (-1) and accumulating (0) records
+            # No time range filter, ascending order (oldest first)
+            logs = await repo.find_by_group_id_with_statuses(
+                group_id=group_id,
+                sync_status_list=[-1, 0],
+                start_time=None,
+                end_time=None,
+                limit=limit,
+                ascending=True,
+            )
+
+            # Use mapper to convert to RawData list
+            raw_data_list = MemoryRequestLogMapper.to_raw_data_list(logs)
+
+            logger.info(
+                "Unprocessed conversation data fetch completed: group_id=%s, count=%d",
+                group_id,
+                len(raw_data_list),
+            )
+            return raw_data_list
+
+        except Exception as e:
+            logger.error(
+                "Unprocessed conversation data fetch failed: group_id=%s, error=%s",
+                group_id,
+                e,
+            )
+            return []
