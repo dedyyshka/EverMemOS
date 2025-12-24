@@ -63,9 +63,9 @@ class DefaultRequestHistoryConfig(RequestHistoryConfig):
         Check if request history logging is enabled
 
         Returns:
-            bool: Always False for opensource version
+            bool: Always True for opensource version
         """
-        return False
+        return True
 
 
 # ============================================================================
@@ -90,6 +90,7 @@ def _get_config_instance() -> RequestHistoryConfig:
 
     return get_bean_by_type(RequestHistoryConfig)
 
+
 def is_request_history_enabled() -> bool:
     """
     Check if request history logging is enabled (with caching)
@@ -112,12 +113,12 @@ def is_request_history_enabled() -> bool:
 
     config = _get_config_instance()
     _enabled_cache = config.is_enabled()
-    
+
     logger.info(
         f"Request history logging is {'enabled' if _enabled_cache else 'disabled'} "
         f"(config: {config.get_config_name()})"
     )
-    
+
     return _enabled_cache
 
 
@@ -142,4 +143,3 @@ def get_request_history_config() -> RequestHistoryConfig:
         RequestHistoryConfig: The current configuration instance
     """
     return _get_config_instance()
-
