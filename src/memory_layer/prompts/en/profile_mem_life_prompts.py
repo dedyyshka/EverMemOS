@@ -1,10 +1,10 @@
-"""V2 Profile Memory Prompts - English Version.
+"""Life Profile Memory Prompts - English Version.
 
 Explicit information + Implicit traits extraction.
 """
 
 # Incremental update prompt
-PROFILE_V2_UPDATE_PROMPT = '''You are a user profile updater. Based on conversation records, determine what operations to perform on the user profile.
+PROFILE_LIFE_UPDATE_PROMPT = '''You are a user profile updater. Based on conversation records, determine what operations to perform on the user profile.
 
 【Current User Profile】(Each item has an index number)
 {current_profile}
@@ -67,7 +67,7 @@ With operations (can combine multiple add/update/delete):
 ```'''
 
 # Compact prompt
-PROFILE_V2_COMPACT_PROMPT = '''The current user profile has {total_items} items (explicit_info + implicit_traits combined), exceeding the limit of {max_items}.
+PROFILE_LIFE_COMPACT_PROMPT = '''The current user profile has {total_items} items (explicit_info + implicit_traits combined), exceeding the limit of {max_items}.
 
 Please compact the profile to **{max_items} items TOTAL** (explicit_info + implicit_traits combined, NOT {max_items} each).
 
@@ -94,7 +94,7 @@ Current Profile:
 ```'''
 
 # Initial extraction prompt (for batch extraction)
-PROFILE_V2_INITIAL_EXTRACTION_PROMPT = '''You are a "User Profile Analyst". Please read the conversation below and build a user profile.
+PROFILE_LIFE_INITIAL_EXTRACTION_PROMPT = '''You are a "User Profile Analyst". Please read the conversation below and build a user profile.
 
 【Part 1: Explicit Information (explicit_info)】
 Objective facts and current status.
@@ -135,6 +135,3 @@ Output JSON directly in the following format:
 
 【Original Conversation】
 {conversation_text}'''
-
-
-

@@ -92,18 +92,18 @@ _PROMPT_REGISTRY = {
         "en": ("memory_layer.prompts.en.event_log_prompts", False),
         "zh": ("memory_layer.prompts.zh.event_log_prompts", False),
     },
-    # Profile V2 (Explicit information + Implicit traits)
-    "PROFILE_V2_UPDATE_PROMPT": {
-        "en": ("memory_layer.prompts.en.profile_mem_v2_prompts", False),
-        "zh": ("memory_layer.prompts.zh.profile_mem_v2_prompts", False),
+    # Profile Life (Explicit information + Implicit traits)
+    "PROFILE_LIFE_UPDATE_PROMPT": {
+        "en": ("memory_layer.prompts.en.profile_mem_life_prompts", False),
+        "zh": ("memory_layer.prompts.zh.profile_mem_life_prompts", False),
     },
-    "PROFILE_V2_COMPACT_PROMPT": {
-        "en": ("memory_layer.prompts.en.profile_mem_v2_prompts", False),
-        "zh": ("memory_layer.prompts.zh.profile_mem_v2_prompts", False),
+    "PROFILE_LIFE_COMPACT_PROMPT": {
+        "en": ("memory_layer.prompts.en.profile_mem_life_prompts", False),
+        "zh": ("memory_layer.prompts.zh.profile_mem_life_prompts", False),
     },
-    "PROFILE_V2_INITIAL_EXTRACTION_PROMPT": {
-        "en": ("memory_layer.prompts.en.profile_mem_v2_prompts", False),
-        "zh": ("memory_layer.prompts.zh.profile_mem_v2_prompts", False),
+    "PROFILE_LIFE_INITIAL_EXTRACTION_PROMPT": {
+        "en": ("memory_layer.prompts.en.profile_mem_life_prompts", False),
+        "zh": ("memory_layer.prompts.zh.profile_mem_life_prompts", False),
     },
 }
 
@@ -123,33 +123,38 @@ class PromptManager:
         """Load module dynamically with caching."""
         if module_path not in self._module_cache:
             import importlib
+
             self._module_cache[module_path] = importlib.import_module(module_path)
         return self._module_cache[module_path]
 
     def get_prompt(self, prompt_name: str, language: Optional[str] = None) -> Any:
         """Get prompt by name and language.
-        
+
         Args:
             prompt_name: Prompt name (e.g. "EPISODE_GENERATION_PROMPT")
             language: Language code ("en" or "zh"). Defaults to MEMORY_LANGUAGE env var.
-            
+
         Returns:
             Prompt string or function.
-            
+
         Raises:
             ValueError: If prompt name or language is invalid.
         """
         if language is None:
             language = get_prompt_language()
         language = language.lower()
-        
+
         if prompt_name not in _PROMPT_REGISTRY:
-            raise ValueError(f"Unknown prompt: {prompt_name}. Available: {list(_PROMPT_REGISTRY.keys())}")
-        
+            raise ValueError(
+                f"Unknown prompt: {prompt_name}. Available: {list(_PROMPT_REGISTRY.keys())}"
+            )
+
         prompt_info = _PROMPT_REGISTRY[prompt_name]
         if language not in prompt_info:
-            raise ValueError(f"Language '{language}' not supported for '{prompt_name}'. Available: {list(prompt_info.keys())}")
-        
+            raise ValueError(
+                f"Language '{language}' not supported for '{prompt_name}'. Available: {list(prompt_info.keys())}"
+            )
+
         module_path, _ = prompt_info[language]
         module = self._load_module(module_path)
         return getattr(module, prompt_name)
@@ -171,14 +176,14 @@ _prompt_manager = PromptManager()
 
 def get_prompt_by(prompt_name: str, language: Optional[str] = None) -> Any:
     """Get prompt by name and language (convenience function).
-    
+
     Args:
         prompt_name: Prompt name (e.g. "EPISODE_GENERATION_PROMPT")
         language: Language code ("en" or "zh"). Defaults to MEMORY_LANGUAGE env var.
-        
+
     Returns:
         Prompt string or function.
-        
+
     Raises:
         ValueError: If prompt name or language is invalid.
     """

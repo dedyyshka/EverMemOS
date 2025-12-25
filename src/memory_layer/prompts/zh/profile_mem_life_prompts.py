@@ -1,10 +1,10 @@
-"""V2 Profile Memory Prompts - Chinese Version.
+"""Life Profile Memory Prompts - Chinese Version.
 
 Explicit information + Implicit traits extraction.
 """
 
 # Incremental Update Prompt
-PROFILE_V2_UPDATE_PROMPT = '''你是用户画像更新员。根据对话记录，判断需要对用户画像做哪些操作。
+PROFILE_LIFE_UPDATE_PROMPT = '''你是用户画像更新员。根据对话记录，判断需要对用户画像做哪些操作。
 
 【当前用户画像】（每条都有 index 编号）
 {current_profile}
@@ -65,7 +65,7 @@ PROFILE_V2_UPDATE_PROMPT = '''你是用户画像更新员。根据对话记录�
 ```'''
 
 # Compacting Prompt
-PROFILE_V2_COMPACT_PROMPT = '''当前用户画像有 {total_items} 条记录（explicit_info + implicit_traits 合计），超过了上限 {max_items} 条。
+PROFILE_LIFE_COMPACT_PROMPT = '''当前用户画像有 {total_items} 条记录（explicit_info + implicit_traits 合计），超过了上限 {max_items} 条。
 
 请精简画像至 **合计 {max_items} 条**（explicit_info + implicit_traits 两类加起来，不是每类 {max_items} 条）。
 
@@ -92,7 +92,7 @@ PROFILE_V2_COMPACT_PROMPT = '''当前用户画像有 {total_items} 条记录（e
 ```'''
 
 # Initial Extraction Prompt
-PROFILE_V2_INITIAL_EXTRACTION_PROMPT = '''你是一个"用户画像分析师"。请阅读下面的对话，构建用户画像。
+PROFILE_LIFE_INITIAL_EXTRACTION_PROMPT = '''你是一个"用户画像分析师"。请阅读下面的对话，构建用户画像。
 
 【第一部分：显式信息 (explicit_info)】
 用户的客观事实和当前状态，如身高体重、喜好、疾病等。
@@ -134,6 +134,3 @@ PROFILE_V2_INITIAL_EXTRACTION_PROMPT = '''你是一个"用户画像分析师"。
 
 【对话原文】
 {conversation_text}'''
-
-
-

@@ -327,12 +327,12 @@ async def _trigger_profile_extraction(
 
         # Extract profiles
         if profile_scenario == ScenarioType.ASSISTANT:
-            new_profiles = await profile_manager.extract_profiles_v2(
+            new_profiles = await profile_manager.extract_profiles_life(
                 memcells=all_memcells,
                 old_profiles=old_profiles,
                 user_id_list=user_id_list,
                 group_id=group_id,
-                max_items=config.profile_v2_max_items,
+                max_items=config.profile_life_max_items,
             )
         else:
             new_profiles = await profile_manager.extract_profiles(
