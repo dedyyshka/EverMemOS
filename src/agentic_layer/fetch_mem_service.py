@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 
 from core.di import get_bean_by_type, get_bean, service
@@ -52,7 +52,7 @@ from infra_layer.adapters.out.persistence.repository.user_profile_raw_repository
     UserProfileRawRepository,
 )
 from api_specs.dtos.memory_query import FetchMemResponse
-
+from memory_layer.memory_extractor.profile_memory_life.types import ProfileMemoryLife
 from api_specs.memory_models import (
     MemoryType,
     MemoryModel,
@@ -275,6 +275,14 @@ class FetchMemoryServiceImpl(FetchMemoryServiceInterface):
             return Metadata(
                 source=source, user_id=user_id, memory_type=memory_type, limit=limit
             )
+
+    def _render_readable_profile(self, profile_data: Dict[str, Any]) -> str:
+        """Generate readable profile text from V2 profile data (no evidence/sources)."""
+        try:
+            profile = ProfileMemoryLife.from_dict(profile_data)
+            return profile.to_readable_profile()
+        except Exception:
+            return "No profile data yet."
 
     async def _convert_core_memory(self, core_memory) -> CoreMemoryModel:
         """Convert core memory document to model"""
@@ -602,11 +610,15 @@ class FetchMemoryServiceImpl(FetchMemoryServiceInterface):
                     
                     memories = []
                     for up in user_profiles:
+                        profile_data = up.profile_data or {}
+                        # Generate readable_profile if not present (for life profiles)
+                        if "readable_profile" not in profile_data and "explicit_info" in profile_data:
+                            profile_data["readable_profile"] = self._render_readable_profile(profile_data)
                         memories.append({
                             "id": str(up.id),
                             "user_id": up.user_id,
                             "group_id": up.group_id,
-                            "profile_data": up.profile_data,
+                            "profile_data": profile_data,
                             "scenario": up.scenario,
                             "confidence": up.confidence,
                             "version": up.version,
