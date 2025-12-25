@@ -33,8 +33,6 @@ class AppLogicMiddleware(BaseHTTPMiddleware):
         self._app_logic_provider = get_bean_by_type(AppLogicProvider)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Cache body before BaseHTTPMiddleware consumes the stream
-        request.state.cached_body = await request.body()
         # ========== Extract and set application context (called on every request) ==========
         app_info = self._app_logic_provider.setup_app_context(request)
 

@@ -41,9 +41,6 @@ async def _extract_request_body(request: Request) -> Optional[str]:
         Raw body string or None
     """
     try:
-        # Read from cached body (set by AppLogicMiddleware)
-        if hasattr(request.state, 'cached_body') and request.state.cached_body:
-            return request.state.cached_body.decode("utf-8", errors="replace")
         body_bytes = await request.body()
         if body_bytes:
             return body_bytes.decode("utf-8", errors="replace")
@@ -113,9 +110,7 @@ async def _publish_request_history_event(event: RequestHistoryEvent) -> None:
 
 
 def log_request(
-    include_body: bool = True,
-    async_publish: bool = True,
-    version: Optional[str] = None,
+    include_body: bool = True, async_publish: bool = True, version: Optional[str] = None
 ) -> Callable:
     """
     Decorator to log request information as an event
