@@ -250,22 +250,6 @@ class HybridRerankService(RerankServiceInterface):
             ),
         )
 
-    async def rerank_documents(
-        self,
-        query: str,
-        documents: List[str],
-        top_k: Optional[int] = None,
-        instruction: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Rerank documents with automatic fallback (legacy compatibility)
-
-        Note: This converts documents to hit format internally
-        """
-        # Convert documents to hit format
-        hits = [{"text": doc, "score": 0.0} for doc in documents]
-        return await self.rerank_memories(query, hits, top_k, instruction)
-
     def get_model_name(self) -> str:
         """Get the current model name (from primary service)"""
         return self.primary_service.get_model_name()

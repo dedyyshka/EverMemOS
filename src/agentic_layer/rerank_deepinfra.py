@@ -72,7 +72,7 @@ class DeepInfraRerankService(RerankServiceInterface):
         formatted_query = f"{prefix}<Instruct>: {instruction}\n<Query>: {query}\n"
         formatted_docs = [f"<Document>: {doc}{suffix}" for doc in documents]
 
-        return [formatted_query] * len(documents), formatted_docs
+        return [formatted_query], formatted_docs
 
     async def _send_rerank_request_batch(
         self,
@@ -319,3 +319,9 @@ class DeepInfraRerankService(RerankServiceInterface):
             if top_k is not None and top_k > 0:
                 sorted_hits = sorted_hits[:top_k]
             return sorted_hits
+
+
+    def get_model_name(self) -> str:
+        """Get the current model name"""
+        return self.config.model
+

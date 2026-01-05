@@ -57,6 +57,28 @@ class VllmRerankService(RerankServiceInterface):
         if self.session and not self.session.closed:
             await self.session.close()
 
+    def _format_rerank_texts(
+        self, query: str, documents: List[str], instruction: Optional[str] = None
+    ):
+        """
+        Format rerank request texts (Qwen-Reranker official format)
+        
+        Reference: https://docs.vllm.ai/en/v0.9.2/examples/offline_inference/qwen3_reranker.html
+        """
+        prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
+        suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        
+        # Use vLLM official default instruction for optimal performance
+        instruction = (
+            instruction
+            or "Given a question and a passage, determine if the passage contains information relevant to answering the question."
+        )
+
+        formatted_query = f"{prefix}<Instruct>: {instruction}\n<Query>: {query}\n"
+        formatted_docs = [f"<Document>: {doc}{suffix}" for doc in documents]
+
+        return [formatted_query], formatted_docs
+
     async def _send_rerank_request_batch(
         self,
         query: str,
@@ -67,16 +89,18 @@ class VllmRerankService(RerankServiceInterface):
         """Send rerank request batch to vLLM rerank API (OpenAI-compatible format)"""
         await self._ensure_session()
 
+        # Format texts using Qwen-Reranker official format
+        queries, formatted_docs = self._format_rerank_texts(
+            query, documents, instruction
+        )
+
         url = self.config.base_url
-        # Use OpenAI-compatible rerank API format
+        # Use OpenAI-compatible rerank API format with formatted texts
         request_data = {
             "model": self.config.model,
-            "query": query,
-            "documents": documents,
+            "query": queries[0] if queries else query,  # Use formatted query
+            "documents": formatted_docs,  # Use formatted documents
         }
-
-        if instruction:
-            request_data["instruction"] = instruction
 
         async with self._semaphore:
             for attempt in range(self.config.max_retries):
@@ -191,6 +215,7 @@ class VllmRerankService(RerankServiceInterface):
 
         if not documents:
             return []
+
 
         # Send rerank request
         try:
