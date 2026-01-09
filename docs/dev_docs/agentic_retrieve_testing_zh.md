@@ -69,7 +69,7 @@ POST /api/v1/memories/search
 
 ```bash
 # 启动服务
-uv run python src/run.py --port 8001
+uv run python src/run.py 
 
 # 运行测试（在另一个终端）
 uv run python src/bootstrap.py demo/test_v3_retrieve_http.py

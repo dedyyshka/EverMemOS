@@ -306,7 +306,7 @@ The fastest way to experience EverMemOS! Just 2 steps to see memory storage and 
 
 ```bash
 # Step 1: Start the API server (in terminal 1)
-uv run python src/run.py --port 8001
+uv run python src/run.py 
 
 # Step 2: Run the simple demo (in terminal 2)
 uv run python src/bootstrap.py demo/simple_demo.py
@@ -330,7 +330,7 @@ We also provide a full-featured experience:
 
 ```bash
 # Terminal 1: Start the API server (required)
-uv run python src/run.py --port 8001
+uv run python src/run.py 
 ```
 
 > 💡 **Tip**: Keep the API server running throughout. All following operations should be performed in another terminal.
@@ -348,7 +348,7 @@ uv run python src/bootstrap.py demo/extract_memory.py
 
 This script performs the following actions:
 - Calls `demo.tools.clear_all_data.clear_all_memories()` so the demo starts from an empty MongoDB/Elasticsearch/Milvus/Redis state. Ensure the dependency stack launched by `docker-compose` is running before executing the script, otherwise the wipe step will fail.
-- Loads `data/assistant_chat_zh.json`, appends `scene="assistant"` to each message, and streams every entry to `http://localhost:8001/api/v1/memories`. Update the `base_url`, `data_file`, or `profile_scene` constants in `demo/extract_memory.py` if you host the API on another endpoint or want to ingest a different scenario.
+- Loads `data/assistant_chat_zh.json`, appends `scene="assistant"` to each message, and streams every entry to `http://localhost:1995/api/v1/memories`. Update the `base_url`, `data_file`, or `profile_scene` constants in `demo/extract_memory.py` if you host the API on another endpoint or want to ingest a different scenario.
 - Writes through the HTTP API only: MemCells, episodes, and profiles are created inside your databases, not under `demo/memcell_outputs/`. Inspect MongoDB (and Milvus/Elasticsearch) to verify ingestion or proceed directly to the chat demo.
 
 > **💡 Tip**: For detailed configuration instructions and usage guide, please refer to the [Demo Documentation](demo/README.md).
@@ -447,7 +447,7 @@ Before calling the API, make sure the API server is running:
 
 ```bash
 # Start the API server
-uv run python src/run.py --port 8001
+uv run python src/run.py 
 ```
 
 > 💡 **Tip**: Keep the API server running throughout. All following API calls should be performed in another terminal.
@@ -460,7 +460,7 @@ Use Memory API to store single message memory:
 <summary>Example: Store single message memory</summary>
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/memories \
+curl -X POST http://localhost:1995/api/v1/memories \
   -H "Content-Type: application/json" \
   -d '{
     "message_id": "msg_001",
@@ -511,7 +511,7 @@ EverMemOS provides two retrieval modes: **Lightweight** (fast) and **Agentic** (
 <summary>Example: Personal Memory Retrieval</summary>
 
 ```bash
-curl -X GET http://localhost:8001/api/v1/memories/search \
+curl -X GET http://localhost:1995/api/v1/memories/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What sports does the user like?",
@@ -530,7 +530,7 @@ curl -X GET http://localhost:8001/api/v1/memories/search \
 <summary>Example: Group Memory Retrieval</summary>
 
 ```bash
-curl -X GET http://localhost:8001/api/v1/memories/search \
+curl -X GET http://localhost:1995/api/v1/memories/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Discuss project progress",
@@ -555,13 +555,13 @@ EverMemOS supports a standardized group chat data format ([GroupChatFormat](data
 # Use script for batch storage (Chinese data)
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_zh.json \
-  --api-url http://localhost:8001/api/v1/memories \
+  --api-url http://localhost:1995/api/v1/memories \
   --scene group_chat 
 
 # Or use English data
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_en.json \
-  --api-url http://localhost:8001/api/v1/memories \
+  --api-url http://localhost:1995/api/v1/memories \
   --scene group_chat
 
 # Validate file format

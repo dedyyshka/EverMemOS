@@ -303,7 +303,7 @@ cp env.template .env
 
 ```bash
 # 步骤 1：启动 API 服务器（终端 1）
-uv run python src/run.py --port 8001
+uv run python src/run.py
 
 # 步骤 2：运行简单演示（终端 2）
 uv run python src/bootstrap.py demo/simple_demo.py
@@ -327,7 +327,7 @@ uv run python src/bootstrap.py demo/simple_demo.py
 
 ```bash
 # 终端 1：启动 API 服务器（必需）
-uv run python src/run.py --port 8001
+uv run python src/run.py
 ```
 
 > 💡 **提示**：API 服务器需要一直运行，请保持此终端打开。下面的所有操作都需要在另一个终端中进行。
@@ -345,7 +345,7 @@ uv run python src/bootstrap.py demo/extract_memory.py
 
 该脚本将：
 - 调用 `demo.tools.clear_all_data.clear_all_memories()`，确保演示从空的 MongoDB/Elasticsearch/Milvus/Redis 状态开始。在执行脚本前请确保 `docker-compose` 启动的依赖服务正在运行，否则清理步骤会失败。
-- 加载 `data/assistant_chat_zh.json`，为每条消息添加 `scene="assistant"`，并将每条记录流式发送到 `http://localhost:8001/api/v1/memories`。如果您在其他端点托管 API 或想要导入不同的场景，可以更新 `demo/extract_memory.py` 中的 `base_url`、`data_file` 或 `scene` 常量。
+- 加载 `data/assistant_chat_zh.json`，为每条消息添加 `scene="assistant"`，并将每条记录流式发送到 `http://localhost:1995/api/v1/memories`。如果您在其他端点托管 API 或想要导入不同的场景，可以更新 `demo/extract_memory.py` 中的 `base_url`、`data_file` 或 `scene` 常量。
 - 仅通过 HTTP API 写入：MemCell、情节和画像都在数据库中创建，而不是保存在 `demo/memcell_outputs/` 目录下。可以检查 MongoDB（以及 Milvus/Elasticsearch）验证数据摄入，或直接进入聊天演示。
 
 > **💡 提示**: 详细的配置说明和使用指南请参阅 [Demo 文档](demo/README_zh.md)。
@@ -444,7 +444,7 @@ cat evaluation/results/locomo-evermemos/pipeline.log        # 执行日志
 
 ```bash
 # 启动 API 服务器
-uv run python src/run.py --port 8001
+uv run python src/run.py 
 ```
 
 > 💡 **提示**：API 服务器需要一直运行，请保持此终端打开。下面的 API 调用需要在另一个终端中进行。
@@ -457,7 +457,7 @@ uv run python src/run.py --port 8001
 <summary>示例：存储单条消息</summary>
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/memories \
+curl -X POST http://localhost:1995/api/v1/memories \
   -H "Content-Type: application/json" \
   -d '{
     "message_id": "msg_001",
@@ -506,7 +506,7 @@ EverMemOS 提供两种检索模式：**轻量级检索**（快速）和 **Agenti
 <summary>示例：个人记忆检索</summary>
 
 ```bash
-curl -X GET http://localhost:8001/api/v1/memories/search \
+curl -X GET http://localhost:1995/api/v1/memories/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "用户喜欢什么运动",
@@ -525,7 +525,7 @@ curl -X GET http://localhost:8001/api/v1/memories/search \
 <summary>示例：群组记忆检索</summary>
 
 ```bash
-curl -X GET http://localhost:8001/api/v1/memories/search \
+curl -X GET http://localhost:1995/api/v1/memories/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "讨论项目进展",
@@ -550,13 +550,13 @@ EverMemOS 支持标准化的群聊数据格式（[GroupChatFormat](data_format/g
 # 使用脚本批量存储（中文数据）
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_zh.json \
-  --api-url http://localhost:8001/api/v1/memories \
+  --api-url http://localhost:1995/api/v1/memories \
   --scene group_chat
 
 # 或者使用英文数据
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_en.json \
-  --api-url http://localhost:8001/api/v1/memories \
+  --api-url http://localhost:1995/api/v1/memories \
   --scene group_chat
 
 # 验证文件格式

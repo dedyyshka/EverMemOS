@@ -134,12 +134,12 @@ uv run python src/bootstrap.py src/run_memorize.py \
 # Store to memory system (English version)
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_en.json \
-  --api-url http://localhost:8001/api/v1/memories
+  --api-url http://localhost:1995/api/v1/memories
 
 # Store to memory system (Chinese version)
 uv run python src/bootstrap.py src/run_memorize.py \
   --input data/group_chat_zh.json \
-  --api-url http://localhost:8001/api/v1/memories
+  --api-url http://localhost:1995/api/v1/memories
 ```
 
 ## 📝 Adding Your Own Data
