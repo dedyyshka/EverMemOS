@@ -51,7 +51,12 @@ class EventLogDoc(TenantAwareAliasDoc("event-log", number_of_shards=3)):
     participants = e_field.Keyword(multi=True)
 
     type = e_field.Keyword()  # Conversation/Email/Notion, etc.
-    keywords = e_field.Keyword(multi=True)  # List of keywords
+
+    # Core content field
+    atomic_fact = e_field.Text(
+        analyzer=whitespace_lowercase_trim_stop_analyzer,
+        search_analyzer=whitespace_lowercase_trim_stop_analyzer,
+    )
 
     # Parent info
     parent_type = e_field.Keyword()  # Parent memory type (e.g., memcell)

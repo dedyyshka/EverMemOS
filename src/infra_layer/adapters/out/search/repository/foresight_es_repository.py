@@ -136,12 +136,9 @@ class ForesightEsRepository(BaseRepository[ForesightDoc]):
             foresight_extend = extend or {}
             foresight_extend.update(
                 {
-                    "parent_type": parent_type,
-                    "parent_id": parent_id,
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
                     "duration_days": duration_days,
-                    "evidence": evidence,
                 }
             )
 
@@ -157,9 +154,8 @@ class ForesightEsRepository(BaseRepository[ForesightDoc]):
                 evidence=evidence or '',
                 group_id=group_id,
                 participants=participants or [],
-                keywords=[],
-                subject='',
-                memcell_event_id_list=[],
+                parent_type=parent_type,
+                parent_id=parent_id,
                 extend=foresight_extend,
                 created_at=created_at,
                 updated_at=updated_at,

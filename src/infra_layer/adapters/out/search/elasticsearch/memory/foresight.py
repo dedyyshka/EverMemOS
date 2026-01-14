@@ -64,7 +64,6 @@ class ForesightDoc(TenantAwareAliasDoc("foresight", number_of_shards=3)):
     participants = e_field.Keyword(multi=True)
 
     type = e_field.Keyword()  # Conversation/Email/Notion, etc.
-    keywords = e_field.Keyword(multi=True)  # List of keywords
 
     # Parent info
     parent_type = e_field.Keyword()  # Parent memory type (e.g., memcell)

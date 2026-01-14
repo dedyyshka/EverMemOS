@@ -125,15 +125,8 @@ class EventLogEsRepository(BaseRepository[EventLogDoc]):
             if updated_at is None:
                 updated_at = now
 
-            # Build extend field, including event log specific information
+            # Build extend field
             eventlog_extend = extend or {}
-            eventlog_extend.update(
-                {
-                    "parent_type": parent_type,
-                    "parent_id": parent_id,
-                    "atomic_fact": atomic_fact,
-                }
-            )
 
             # Create document instance
             doc = EventLogDoc(
@@ -142,18 +135,13 @@ class EventLogEsRepository(BaseRepository[EventLogDoc]):
                 user_id=user_id,
                 user_name=user_name or "",
                 timestamp=timestamp,
-                title='',
-                episode='',
-                atomic_fact=atomic_fact,
                 search_content=search_content,
-                summary='',
+                atomic_fact=atomic_fact,
                 group_id=group_id,
                 group_name=group_name or "",
                 participants=participants or [],
-                keywords=[],
-                linked_entities=[],
-                subject='',
-                memcell_event_id_list=[],
+                parent_type=parent_type,
+                parent_id=parent_id,
                 extend=eventlog_extend,
                 created_at=created_at,
                 updated_at=updated_at,
