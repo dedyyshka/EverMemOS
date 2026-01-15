@@ -156,6 +156,7 @@ class MemCell(DocumentBaseWithSoftDelete, AuditBase):
                 "linked_entities": ["project_001", "feature_002"],
             }
         },
+        extra="allow",
     )
 
     @property

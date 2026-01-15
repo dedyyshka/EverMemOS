@@ -11,7 +11,9 @@ from core.oxm.es.analyzer import (
 )
 
 
-class EpisodicMemoryDoc(TenantAwareAliasDoc("episodic-memory", number_of_shards=3)):
+class EpisodicMemoryDoc(
+    TenantAwareAliasDoc("episodic-memory", number_of_shards=1, number_of_replicas=0)
+):
     """
     Episodic memory Elasticsearch document
 

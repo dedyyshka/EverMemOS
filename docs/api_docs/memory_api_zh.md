@@ -62,6 +62,7 @@ Memory API 提供了专门用于处理群聊记忆的接口，采用简单直接
   "create_time": "2025-01-15T02:00:00Z",
   "sender": "user_001",
   "sender_name": "张三",
+  "role": "user",
   "content": "今天讨论下新功能的技术方案",
   "refer_list": ["msg_000"]
 }
@@ -77,6 +78,7 @@ Memory API 提供了专门用于处理群聊记忆的接口，采用简单直接
 | create_time | string | 是 | 消息创建时间（ISO 8601格式） |
 | sender | string | 是 | 发送者用户ID |
 | sender_name | string | 否 | 发送者名称（默认使用 sender） |
+| role | string | 否 | 消息来源角色：`user`（人类）或 `assistant`（AI） |
 | content | string | 是 | 消息内容 |
 | refer_list | array | 否 | 引用的消息ID列表 |
 
@@ -95,7 +97,7 @@ Memory API 提供了专门用于处理群聊记忆的接口，采用简单直接
   "result": {
     "saved_memories": [
       {
-        "memory_type": "episode_memory",
+        "memory_type": "episodic_memory",
         "user_id": "user_001",
         "group_id": "group_123",
         "timestamp": "2025-01-15T10:00:00",
@@ -168,6 +170,7 @@ Memory API 提供了专门用于处理群聊记忆的接口，采用简单直接
   "create_time": "2025-01-15T02:00:00Z",
   "sender": "user_001",
   "sender_name": "张三",
+  "role": "user",
   "content": "今天讨论下新功能的技术方案",
   "refer_list": []
 }
@@ -186,8 +189,24 @@ Memory API 提供了专门用于处理群聊记忆的接口，采用简单直接
   "create_time": "2025-01-15T02:05:00Z",
   "sender": "user_456",
   "sender_name": "李四",
+  "role": "user",
   "content": "帮我总结下今天的会议内容",
   "refer_list": []
+}
+```
+
+**AI 响应示例**：
+```json
+{
+  "group_id": "bot_conversation_123",
+  "group_name": "与AI助手的对话",
+  "message_id": "bot_msg_002",
+  "create_time": "2025-01-15T02:05:30Z",
+  "sender": "ai_assistant",
+  "sender_name": "AI助手",
+  "role": "assistant",
+  "content": "根据会议记录，今天讨论的要点如下...",
+  "refer_list": ["bot_msg_001"]
 }
 ```
 
@@ -212,6 +231,7 @@ async def process_message(message):
                 "create_time": message["create_time"],
                 "sender": message["sender"],
                 "sender_name": message["sender_name"],
+                "role": message.get("role"),
                 "content": message["content"],
                 "refer_list": message.get("refer_list", [])
             }
@@ -240,6 +260,7 @@ curl -X POST http://localhost:1995/api/v1/memories \
     "create_time": "2025-01-15T02:00:00Z",
     "sender": "user_001",
     "sender_name": "张三",
+    "role": "user",
     "content": "今天讨论下新功能的技术方案",
     "refer_list": []
   }'
@@ -260,6 +281,7 @@ async def call_memory_api():
         "create_time": "2025-01-15T02:00:00Z",
         "sender": "user_001",
         "sender_name": "张三",
+        "role": "user",
         "content": "今天讨论下新功能的技术方案",
         "refer_list": []
     }
@@ -444,7 +466,7 @@ Memory Manager (memory_manager.py)
 | 参数 | 类型 | 必需 | 默认值 | 说明 |
 |-----|------|------|--------|------|
 | user_id | string | 是 | - | 用户ID |
-| memory_type | string | 否 | "profile" | 记忆类型，可选值：`profile`、`episode_memory`、`foresight`、`event_log` |
+| memory_type | string | 否 | "profile" | 记忆类型，可选值：`profile`、`episodic_memory`、`foresight`、`event_log` |
 | limit | integer | 否 | 10 | 返回记忆的最大数量 |
 | offset | integer | 否 | 0 | 分页偏移量 |
 | sort_by | string | 否 | - | 排序字段 |
@@ -454,7 +476,7 @@ Memory Manager (memory_manager.py)
 
 **记忆类型说明**：
 - `profile`: 用户画像，包含用户的特征和属性
-- `episode_memory`: 情景记忆摘要
+- `episodic_memory`: 情景记忆摘要
 - `foresight`: 前瞻性记忆，包含用户的意图和计划
 - `event_log`: 事件日志，记录用户的行为事件
 
@@ -556,7 +578,7 @@ asyncio.run(fetch_memories())
   "top_k": 10,
   "start_time": "2024-01-01T00:00:00",
   "end_time": "2024-12-31T23:59:59",
-  "memory_types": ["episode_memory"],
+  "memory_types": ["episodic_memory"],
   "filters": {},
   "include_metadata": true
 }
@@ -573,7 +595,7 @@ asyncio.run(fetch_memories())
 | top_k | integer | 否 | 10 | 返回的最大结果数 |
 | start_time | string | 否 | - | 时间范围起点（ISO 8601格式） |
 | end_time | string | 否 | - | 时间范围终点（ISO 8601格式） |
-| memory_types | array | 否 | ["episode_memory"] | 要检索的记忆类型列表，可选值：`episode_memory`、`foresight`、`event_log`（不支持 `profile`） |
+| memory_types | array | 否 | ["episodic_memory"] | 要检索的记忆类型列表，可选值：`episodic_memory`、`foresight`、`event_log`（不支持 `profile`） |
 | filters | object | 否 | {} | 额外的过滤条件 |
 | radius | float | 否 | - | 向量检索时的 COSINE 相似度阈值（仅对 vector 和 hybrid 方法有效，默认 0.6） |
 | include_metadata | boolean | 否 | true | 是否包含元数据 |
@@ -598,7 +620,7 @@ asyncio.run(fetch_memories())
       {
         "group_456": [
           {
-            "memory_type": "episode_memory",
+            "memory_type": "episodic_memory",
             "user_id": "user_123",
             "timestamp": "2024-01-15T10:30:00",
             "summary": "讨论了咖啡偏好",
@@ -677,7 +699,7 @@ async def search_memories():
         "query": "咖啡偏好",
         "retrieve_method": "hybrid",
         "top_k": 10,
-        "memory_types": ["episode_memory"]
+        "memory_types": ["episodic_memory"]
     }
     
     async with httpx.AsyncClient() as client:
@@ -721,13 +743,14 @@ asyncio.run(search_memories())
   "user_details": {
     "user_001": {
       "full_name": "张三",
-      "role": "developer",
+      "role": "user",
+      "custom_role": "developer",
       "extra": {"department": "工程部"}
     },
-    "user_002": {
-      "full_name": "李四",
-      "role": "designer",
-      "extra": {"department": "设计部"}
+    "bot_001": {
+      "full_name": "AI助手",
+      "role": "assistant",
+      "extra": {"type": "ai"}
     }
   },
   "tags": ["工作", "技术"]
@@ -748,6 +771,15 @@ asyncio.run(search_memories())
 | default_timezone | string | 否 | 默认时区（默认使用系统时区） |
 | user_details | object | 否 | 参与者详情，key 为用户ID，value 为用户详情对象 |
 | tags | array | 否 | 标签列表 |
+
+**user_details 对象字段说明**：
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| full_name | string | 否 | 用户显示名称 |
+| role | string | 否 | 用户类型角色：`user`（人类）或 `assistant`（AI） |
+| custom_role | string | 否 | 用户职位角色（如 developer, designer, manager） |
+| extra | object | 否 | 额外扩展信息 |
 
 #### 响应格式
 
@@ -800,7 +832,7 @@ asyncio.run(search_memories())
 | description | string | 否 | 新的描述 |
 | scene_desc | string | 否 | 新的场景描述 |
 | tags | array | 否 | 新的标签列表 |
-| user_details | object | 否 | 新的用户详情（会完整替换现有的 user_details） |
+| user_details | object | 否 | 新的用户详情（会完整替换现有的 user_details），字段说明参见 [user_details 对象字段说明](#user_details-对象字段说明) |
 | default_timezone | string | 否 | 新的默认时区 |
 
 **可更新的字段**：

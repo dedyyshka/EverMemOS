@@ -74,6 +74,7 @@ class EpisodicMemory(DocumentBase, AuditBase):
                 "extend": {"priority": "high", "location": "Meeting Room A"},
             }
         },
+        extra="allow",
     )
 
     @property

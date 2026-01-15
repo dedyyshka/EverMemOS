@@ -14,7 +14,9 @@ from core.oxm.es.analyzer import (
 )
 
 
-class ForesightDoc(TenantAwareAliasDoc("foresight", number_of_shards=3)):
+class ForesightDoc(
+    TenantAwareAliasDoc("foresight", number_of_shards=1, number_of_replicas=0)
+):
     """
     Foresight Elasticsearch document
 

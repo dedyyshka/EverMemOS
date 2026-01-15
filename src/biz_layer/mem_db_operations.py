@@ -896,12 +896,10 @@ def _convert_memcell_to_document(
         # Create document model - pass timezone-aware datetime object directly instead of string
         # This avoids infinite recursion triggered by base class datetime validator
         doc_memcell = DocMemCell(
-            event_id=memcell.event_id,
             user_id=primary_user_id,
             timestamp=timestamp_dt,  # Pass timezone-aware datetime directly
             summary=memcell.summary,
             group_id=memcell.group_id,
-            group_name=memcell.group_name,
             original_data=doc_original_data,
             participants=memcell.participants,
             type=doc_type,

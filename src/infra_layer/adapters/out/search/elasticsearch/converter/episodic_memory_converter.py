@@ -141,7 +141,7 @@ class EpisodicMemoryConverter(BaseEsConverter[EpisodicMemoryDoc]):
         return search_content
 
     @classmethod
-    def from_memory(cls, episode_memory) -> EpisodicMemoryDoc:
+    def from_memory(cls, episodic_memory) -> EpisodicMemoryDoc:
         """
         Convert from Memory object to ES EpisodicMemoryDoc instance
 
@@ -152,7 +152,7 @@ class EpisodicMemoryConverter(BaseEsConverter[EpisodicMemoryDoc]):
         including jieba word segmentation and field mapping logic.
 
         Args:
-            episode_memory: Instance of Memory object
+            episodic_memory: Instance of Memory object
 
         Returns:
             EpisodicMemoryDoc: ES document instance, ready for indexing

@@ -6,10 +6,9 @@ A conversation metadata document model based on Beanie ODM, storing complete met
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from beanie import Indexed
 from core.oxm.mongo.document_base import DocumentBase
 from pydantic import Field, ConfigDict, BaseModel
-from pymongo import IndexModel, ASCENDING, DESCENDING, TEXT
+from pymongo import DESCENDING, IndexModel, ASCENDING
 from core.oxm.mongo.audit_base import AuditBase
 from common_utils.datetime_utils import get_timezone
 
@@ -55,8 +54,9 @@ class ConversationMeta(DocumentBase, AuditBase):
     description: Optional[str] = Field(
         default=None, description="Conversation description"
     )
-    group_id: Indexed(str) = Field(
-        ..., description="Group ID, used to associate a group of conversations"
+    group_id: Optional[str] = Field(
+        default=None,
+        description="Group ID, used to associate a group of conversations. When None, represents default settings.",
     )
 
     # Time information
@@ -95,7 +95,7 @@ class ConversationMeta(DocumentBase, AuditBase):
                 "scene_desc": {"bot_ids": ["aaa", "bbb", "ccc"]},
                 "name": "User health consultation conversation",
                 "description": "Conversation records between user and AI assistant regarding Beijing travel, health management, sports rehabilitation, etc.",
-                "group_id": "chat_user_001_assistant",
+                "group_id": "example_group_id",  # Can be None for default settings
                 "conversation_created_at": "2025-08-26T00:00:00Z",
                 "default_timezone": "UTC",
                 "user_details": {
@@ -128,6 +128,7 @@ class ConversationMeta(DocumentBase, AuditBase):
                 ],
             }
         },
+        extra="allow",
     )
 
     class Settings:
@@ -135,15 +136,6 @@ class ConversationMeta(DocumentBase, AuditBase):
 
         name = "conversation_metas"
         indexes = [
-            # group_id index (high-frequency query)
-            IndexModel([("group_id", ASCENDING)], name="idx_group_id"),
-            # scene index (scene query)
-            IndexModel([("scene", ASCENDING)], name="idx_scene"),
-            # Composite index: group_id + scene (common compound query)
-            IndexModel(
-                [("group_id", ASCENDING), ("scene", ASCENDING)],
-                name="idx_group_id_scene",
-            ),
             IndexModel(
                 [("conversation_created_at", ASCENDING)],
                 name="idx_conversation_created_at",
@@ -152,6 +144,9 @@ class ConversationMeta(DocumentBase, AuditBase):
             IndexModel([("created_at", DESCENDING)], name="idx_created_at"),
             # Update time index
             IndexModel([("updated_at", DESCENDING)], name="idx_updated_at"),
+            IndexModel(
+                [("group_id", ASCENDING)], name="idx_group_id_unique", unique=True
+            ),
         ]
         validate_on_save = True
         use_state_management = True

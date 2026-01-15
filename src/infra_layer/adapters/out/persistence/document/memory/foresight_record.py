@@ -89,6 +89,7 @@ class ForesightRecord(DocumentBase, AuditBase):
                 "extend": {"confidence": 0.9},
             }
         },
+        extra="allow",
     )
 
     @property
