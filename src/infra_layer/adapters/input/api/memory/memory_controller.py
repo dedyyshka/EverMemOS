@@ -24,6 +24,7 @@ from core.interface.controller.base_controller import (
     delete,
 )
 from core.constants.errors import ErrorCode, ErrorStatus
+from core.constants.exceptions import ValidationException, BaseException
 from agentic_layer.memory_manager import MemoryManager
 from api_specs.request_converter import (
     convert_simple_message_to_memorize_request,
@@ -811,6 +812,16 @@ class MemoryController(BaseController):
                 "result": result.model_dump(),
             }
 
+        except ValidationException as e:
+            logger.error(
+                "conversation-meta validation failed: %s", e.message, exc_info=True
+            )
+            # ValidationException 的 message 已经包含了字段名和详细错误信息
+            # 例如: "Field 'scene': invalid scene value: company, allowed values: ['group_chat', 'assistant']"
+            raise HTTPException(
+                status_code=400,
+                detail=e.message,
+            ) from e
         except ValueError as e:
             logger.error("conversation-meta request parameter error: %s", e)
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -982,6 +993,18 @@ class MemoryController(BaseController):
                 },
             }
 
+        except ValidationException as e:
+            logger.error(
+                "conversation-meta partial update validation failed: %s",
+                e.message,
+                exc_info=True,
+            )
+            # ValidationException 的 message 已经包含了字段名和详细错误信息
+            # 例如: "Field 'scene': invalid scene value: company, allowed values: ['group_chat', 'assistant']"
+            raise HTTPException(
+                status_code=400,
+                detail=e.message,
+            ) from e
         except HTTPException:
             # Re-raise HTTPException
             raise

@@ -10,6 +10,7 @@ from pymongo.asynchronous.client_session import AsyncClientSession
 
 from core.oxm.mongo.base_repository import BaseRepository
 from core.di.decorators import repository
+from core.constants.exceptions import ValidationException
 from infra_layer.adapters.out.persistence.document.memory.conversation_meta import (
     ConversationMeta,
 )
@@ -202,18 +203,31 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
 
         Returns:
             Updated conversation metadata object or None
+
+        Raises:
+            ValidationException: When scene validation fails
         """
         try:
             # If scene is in update data, validate first
             if "scene" in update_data and not self._validate_scene(
                 update_data["scene"]
             ):
-                logger.error(
-                    "❌ Failed to update conversation metadata: invalid scene value: %s, allowed values: %s",
-                    update_data["scene"],
-                    ALLOWED_SCENES,
+                error_message = (
+                    f"invalid scene value: {update_data['scene']}, "
+                    f"allowed values: {ALLOWED_SCENES}"
                 )
-                return None
+                logger.error(
+                    "❌ Failed to update conversation metadata: %s",
+                    error_message,
+                )
+                raise ValidationException(
+                    message=error_message,
+                    field="scene",
+                    details={
+                        "invalid_value": update_data["scene"],
+                        "allowed_values": ALLOWED_SCENES,
+                    },
+                )
 
             conversation_meta = await self.get_by_group_id(group_id, session=session)
             if conversation_meta:
@@ -227,6 +241,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 )
                 return conversation_meta
             return None
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to update conversation metadata by group_id: %s",
@@ -253,18 +270,31 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
 
         Returns:
             Updated or created conversation metadata object
+
+        Raises:
+            ValidationException: When scene validation fails
         """
         try:
             # If data contains scene, validate first
             if "scene" in conversation_data and not self._validate_scene(
                 conversation_data["scene"]
             ):
-                logger.error(
-                    "❌ Failed to upsert conversation metadata: invalid scene value: %s, allowed values: %s",
-                    conversation_data["scene"],
-                    ALLOWED_SCENES,
+                error_message = (
+                    f"invalid scene value: {conversation_data['scene']}, "
+                    f"allowed values: {ALLOWED_SCENES}"
                 )
-                return None
+                logger.error(
+                    "❌ Failed to upsert conversation metadata: %s",
+                    error_message,
+                )
+                raise ValidationException(
+                    message=error_message,
+                    field="scene",
+                    details={
+                        "invalid_value": conversation_data["scene"],
+                        "allowed_values": ALLOWED_SCENES,
+                    },
+                )
 
             # 1. First try to find existing record
             existing_doc = await self.model.find_one(
@@ -301,6 +331,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 )
                 return None
 
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to upsert conversation metadata: %s", e, exc_info=True
