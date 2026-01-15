@@ -10,6 +10,7 @@ from pymongo.asynchronous.client_session import AsyncClientSession
 
 from core.oxm.mongo.base_repository import BaseRepository
 from core.di.decorators import repository
+from core.constants.exceptions import ValidationException
 from infra_layer.adapters.out.persistence.document.memory.conversation_meta import (
     ConversationMeta,
 )
@@ -33,22 +34,30 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
         """Initialize repository"""
         super().__init__(ConversationMeta)
 
-    def _validate_scene(self, scene: str) -> bool:
+    def _validate_scene(self, scene: str) -> None:
         """
         Validate if scene is valid
 
         Args:
             scene: Scene identifier
 
-        Returns:
-            bool: Returns True if valid, False otherwise
+        Raises:
+            ValidationException: When scene validation fails
         """
         if scene not in ALLOWED_SCENES:
-            logger.warning(
-                "❌ Invalid scene value: %s, allowed values: %s", scene, ALLOWED_SCENES
+            error_message = (
+                f"invalid scene value: {scene}, "
+                f"allowed values: {ALLOWED_SCENES}"
             )
-            return False
-        return True
+            logger.error("❌ Scene validation failed: %s", error_message)
+            raise ValidationException(
+                message=error_message,
+                field="scene",
+                details={
+                    "invalid_value": scene,
+                    "allowed_values": ALLOWED_SCENES,
+                },
+            )
 
     async def get_by_group_id(
         self, group_id: Optional[str], session: Optional[AsyncClientSession] = None
@@ -121,13 +130,7 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
         """
         try:
             # Validate scene field
-            if not self._validate_scene(scene):
-                logger.warning(
-                    "❌ Invalid scene value when querying conversation metadata list: %s, allowed values: %s",
-                    scene,
-                    ALLOWED_SCENES,
-                )
-                return []
+            self._validate_scene(scene=scene)
 
             query = self.model.find({"scene": scene}, session=session)
             if skip:
@@ -142,6 +145,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 len(result),
             )
             return result
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to retrieve conversation metadata list by scene: %s", e
@@ -165,13 +171,7 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
         """
         try:
             # Validate scene field
-            if not self._validate_scene(conversation_meta.scene):
-                logger.error(
-                    "❌ Failed to create conversation metadata: invalid scene value: %s, allowed values: %s",
-                    conversation_meta.scene,
-                    ALLOWED_SCENES,
-                )
-                return None
+            self._validate_scene(scene=conversation_meta.scene)
 
             await conversation_meta.insert(session=session)
             logger.info(
@@ -180,6 +180,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 conversation_meta.scene,
             )
             return conversation_meta
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to create conversation metadata: %s", e, exc_info=True
@@ -202,18 +205,14 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
 
         Returns:
             Updated conversation metadata object or None
+
+        Raises:
+            ValidationException: When scene validation fails
         """
         try:
-            # If scene is in update data, validate first
-            if "scene" in update_data and not self._validate_scene(
-                update_data["scene"]
-            ):
-                logger.error(
-                    "❌ Failed to update conversation metadata: invalid scene value: %s, allowed values: %s",
-                    update_data["scene"],
-                    ALLOWED_SCENES,
-                )
-                return None
+            # Validate scene if present in update data
+            if "scene" in update_data:
+                self._validate_scene(update_data["scene"])
 
             conversation_meta = await self.get_by_group_id(group_id, session=session)
             if conversation_meta:
@@ -227,6 +226,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 )
                 return conversation_meta
             return None
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to update conversation metadata by group_id: %s",
@@ -253,18 +255,14 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
 
         Returns:
             Updated or created conversation metadata object
+
+        Raises:
+            ValidationException: When scene validation fails
         """
         try:
-            # If data contains scene, validate first
-            if "scene" in conversation_data and not self._validate_scene(
-                conversation_data["scene"]
-            ):
-                logger.error(
-                    "❌ Failed to upsert conversation metadata: invalid scene value: %s, allowed values: %s",
-                    conversation_data["scene"],
-                    ALLOWED_SCENES,
-                )
-                return None
+            # Validate scene if present in conversation data
+            if "scene" in conversation_data:
+                self._validate_scene(conversation_data["scene"])
 
             # 1. First try to find existing record
             existing_doc = await self.model.find_one(
@@ -301,6 +299,9 @@ class ConversationMetaRawRepository(BaseRepository[ConversationMeta]):
                 )
                 return None
 
+        except ValidationException:
+            # Re-raise ValidationException to propagate detailed error info
+            raise
         except Exception as e:
             logger.error(
                 "❌ Failed to upsert conversation metadata: %s", e, exc_info=True
