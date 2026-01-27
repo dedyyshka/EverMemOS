@@ -5,6 +5,11 @@ import json
 import traceback
 
 from memory_layer.profile_manager.config import ScenarioType
+from agentic_layer.metrics.memorize_metrics import (
+    record_extraction_stage,
+    record_memory_extracted,
+    get_space_id_for_metrics,
+)
 from api_specs.dtos import MemorizeRequest
 from memory_layer.memory_manager import MemoryManager
 from api_specs.memory_types import (
@@ -465,27 +470,118 @@ async def process_memory_extraction(
     Returns:
         int: Total number of memories extracted
     """
+    # Get metrics labels
+    space_id = get_space_id_for_metrics()
+    raw_data_type = memcell.type.value if memcell.type else 'unknown'
+    
     # 1. Initialize state
+    init_start = time.perf_counter()
     state = await _init_extraction_state(memcell, request, current_time)
+    record_extraction_stage(
+        space_id=space_id,
+        raw_data_type=raw_data_type,
+        stage='init_state',
+        duration_seconds=time.perf_counter() - init_start,
+    )
 
     # 2. Parallel extract: Episode + (assistant scene) Foresight/EventLog
     foresight_memories, event_logs = [], []
+    extract_start = time.perf_counter()
+    
+    # Wrapper functions to track individual stage durations
+    async def _timed_extract_episodes():
+        start = time.perf_counter()
+        result = await _extract_episodes(state, memory_manager)
+        record_extraction_stage(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            stage='extract_episodes',
+            duration_seconds=time.perf_counter() - start,
+        )
+        return result
+    
+    async def _timed_extract_foresights():
+        start = time.perf_counter()
+        result = await _extract_foresights(state, memory_manager)
+        record_extraction_stage(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            stage='extract_foresights',
+            duration_seconds=time.perf_counter() - start,
+        )
+        return result
+    
+    async def _timed_extract_event_logs():
+        start = time.perf_counter()
+        result = await _extract_event_logs(state, memory_manager)
+        record_extraction_stage(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            stage='extract_event_logs',
+            duration_seconds=time.perf_counter() - start,
+        )
+        return result
+    
     if state.is_assistant_scene:
         _, foresight_memories, event_logs = await asyncio.gather(
-            _extract_episodes(state, memory_manager),
-            _extract_foresights(state, memory_manager),
-            _extract_event_logs(state, memory_manager),
+            _timed_extract_episodes(),
+            _timed_extract_foresights(),
+            _timed_extract_event_logs(),
         )
     else:
-        await _extract_episodes(state, memory_manager)
+        await _timed_extract_episodes()
+    record_extraction_stage(
+        space_id=space_id,
+        raw_data_type=raw_data_type,
+        stage='extract_parallel',
+        duration_seconds=time.perf_counter() - extract_start,
+    )
+
+    # Record extracted counts
+    episodes_count = len(state.group_episode_memories) + len(state.episode_memories)
+    if episodes_count > 0:
+        record_memory_extracted(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            memory_type='episode',
+            count=episodes_count,
+        )
+    if foresight_memories:
+        record_memory_extracted(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            memory_type='foresight',
+            count=len(foresight_memories),
+        )
+    if event_logs:
+        record_memory_extracted(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            memory_type='event_log',
+            count=len(event_logs),
+        )
 
     # 3. Update MemCell and trigger clustering
+    cluster_start = time.perf_counter()
     await _update_memcell_and_cluster(state)
+    record_extraction_stage(
+        space_id=space_id,
+        raw_data_type=raw_data_type,
+        stage='update_memcell_cluster',
+        duration_seconds=time.perf_counter() - cluster_start,
+    )
 
     # 4. Save memories
     memories_count = 0
     if if_memorize(memcell):
+        save_start = time.perf_counter()
         memories_count = await _process_memories(state, foresight_memories, event_logs)
+        record_extraction_stage(
+            space_id=space_id,
+            raw_data_type=raw_data_type,
+            stage='process_memories',
+            duration_seconds=time.perf_counter() - save_start,
+        )
 
     return memories_count
 
@@ -850,10 +946,11 @@ async def preprocess_conv_request(
 ) -> MemorizeRequest:
     """
     Simplified request preprocessing:
-    1. Read all historical messages from conversation_data_repo (excluding current request's messages)
-    2. Set historical messages as history_raw_data_list
-    3. Set current new message as new_raw_data_list
-    4. Boundary detection handled by subsequent logic (will clear or retain after detection)
+    1. Get last_memcell_time from status table to determine current memcell start
+    2. Read historical messages from conversation_data_repo (only messages after last_memcell_time)
+    3. Set historical messages as history_raw_data_list
+    4. Set current new message as new_raw_data_list
+    5. Boundary detection handled by subsequent logic (will clear or retain after detection)
     """
 
     logger.info(f"[preprocess] Start processing: group_id={request.group_id}")
@@ -865,23 +962,31 @@ async def preprocess_conv_request(
 
     # Use conversation_data_repo for read-then-store operation
     conversation_data_repo = get_bean_by_type(ConversationDataRepository)
+    status_repo = get_bean_by_type(ConversationStatusRawRepository)
 
     try:
         # Extract message_ids from new_raw_data_list to exclude them
         new_message_ids = [r.data_id for r in request.new_raw_data_list if r.data_id]
 
+        # Step 0: Get last_memcell_time to filter history (only get current memcell's messages)
+        start_time = None
+        status = await status_repo.get_by_group_id(request.group_id)
+        if status and status.last_memcell_time:
+            start_time = status.last_memcell_time
+            logger.info(f"[preprocess] Using last_memcell_time as start_time: {start_time}")
+
         # Step 1: Get historical messages, excluding current request's messages
-        # This handles the case where messages were just saved with sync_status=-1
+        # Only get messages after last_memcell_time (current memcell's accumulated messages)
         history_raw_data_list = await conversation_data_repo.get_conversation_data(
             group_id=request.group_id,
-            start_time=None,
+            start_time=start_time,
             end_time=None,
             limit=1000,
             exclude_message_ids=new_message_ids,
         )
 
         logger.info(
-            f"[preprocess] Read {len(history_raw_data_list)} historical messages (excluded {len(new_message_ids)} new)"
+            f"[preprocess] Read {len(history_raw_data_list)} historical messages (excluded {len(new_message_ids)} new, start_time={start_time})"
         )
 
         # Update request
@@ -1190,7 +1295,10 @@ async def memorize(request: MemorizeRequest) -> int:
             return 0
 
     # Boundary detection
-    now = time.time()
+    # Get metrics labels
+    space_id = get_space_id_for_metrics()
+    raw_data_type = request.raw_data_type.value if request.raw_data_type else 'unknown'
+    
     logger.info("=" * 80)
     logger.info(f"[Boundary Detection] Start detection: group_id={request.group_id}")
     logger.info(
@@ -1201,6 +1309,7 @@ async def memorize(request: MemorizeRequest) -> int:
     )
     logger.info("=" * 80)
 
+    memcell_start = time.perf_counter()
     memcell_result = await memory_manager.extract_memcell(
         request.history_raw_data_list,
         request.new_raw_data_list,
@@ -1209,7 +1318,13 @@ async def memorize(request: MemorizeRequest) -> int:
         request.group_name,
         request.user_id_list,
     )
-    logger.debug(f"[mem_memorize] Extracting MemCell took: {time.time() - now} seconds")
+    record_extraction_stage(
+        space_id=space_id,
+        raw_data_type=raw_data_type,
+        stage='extract_memcell',
+        duration_seconds=time.perf_counter() - memcell_start,
+    )
+    logger.debug(f"[mem_memorize] Extracting MemCell took: {time.perf_counter() - memcell_start} seconds")
 
     if memcell_result == None:
         logger.warning(f"[mem_memorize] Skipped extracting MemCell")

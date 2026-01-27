@@ -10,7 +10,6 @@
 [![Elasticsearch][elasticsearch-badge]][elasticsearch]
 [![Milvus][milvus-badge]][milvus]
 [![Ask DeepWiki][deepwiki-badge]][deepwiki]
-[![ReadmeX][readmex-badge]][readmex]
 [![License][license-badge]][license]
 
 
@@ -33,10 +32,6 @@
 [![简体中文][lang-zh-badge]][lang-zh-readme]
 
 </div>
-
-
-![divider][divider-light]
-![divider][divider-dark]
 
 <br>
 
@@ -87,7 +82,7 @@ Welcome to EverMemOS! Join our community to help improve the project and collabo
 
 <br>
 
-## Why EverMemOS
+<!-- ## Why EverMemOS
 
 ### How EverMemOS works
 ![image](https://github.com/user-attachments/assets/2a2a4f15-9185-47b3-9182-9c28145e18a4)
@@ -114,7 +109,196 @@ EverMemOS enables AI to not only remember what happened, but understand the mean
 
 [![][back-to-top]][readme-top]
 
-</div>
+</div> -->
+
+## Introduction
+
+> 💬 **More than memory — it's foresight.**
+
+**EverMemOS** enables AI to not only remember what happened, but understand the meaning behind memories and use them to guide decisions. Achieving **93% reasoning accuracy** on the LoCoMo benchmark, EverMemOS provides long-term memory capabilities for conversational AI agents through structured extraction, intelligent retrieval, and progressive profile building.
+
+<p align="center">
+  <img src="figs/overview.png" alt="EverMemOS Architecture Overview" width="800"/>
+</p>
+
+**How it works:** EverMemOS extracts structured memories from conversations (Encoding), organizes them into episodes and profiles (Consolidation), and intelligently retrieves relevant context when needed (Retrieval).
+
+📄 [Paper](https://arxiv.org/abs/2601.02163) • 📚 [Vision & Overview](docs/OVERVIEW.md) • 🏗️ [Architecture](docs/ARCHITECTURE.md) • 📖 [Full Documentation](docs/)
+
+**Latest**: v1.2.0 with API enhancements + DB efficiency improvements ([Changelog](docs/CHANGELOG.md))
+
+<br>
+
+## Why EverMemOS?
+
+- 🎯 **93% Accuracy** - Best-in-class performance on LoCoMo benchmark
+- 🚀 **Production Ready** - Enterprise-grade with Milvus vector DB, Elasticsearch, MongoDB, and Redis
+- 🔧 **Easy Integration** - Simple REST API, works with any LLM
+- 📊 **Multi-Modal Memory** - Episodes, facts, preferences, relations
+- 🔍 **Smart Retrieval** - BM25, embeddings, or agentic search
+
+<p align="center">
+  <img src="figs/benchmark.png" alt="EverMemOS Benchmark Results" width="800"/>
+  <br>
+  <em>EverMemOS outperforms existing memory systems across all major benchmarks</em>
+</p>
+
+<br>
+
+## Hackathon
+
+Join our AI Memory Hackathon! Build innovative applications, plugins, or infrastructure improvements powered by EverMemOS.
+
+**Tracks:**
+- **Agent + Memory** - Build intelligent agents with long-term, evolving memories
+- **Platform Plugins** - Integrate EverMemOS with VSCode, Chrome, Slack, Notion, LangChain, and more
+- **OS Infrastructure** - Optimize core functionality and performance
+
+👉 **[Get Started with the Hackathon Starter Kit](docs/STARTER_KIT.md)** 👈
+
+Join our [Discord](https://discord.gg/pfwwskxp) to find teammates and brainstorm ideas!
+
+<br>
+
+## Quick Start
+
+### Prerequisites
+- Python 3.10+ • Docker 20.10+ • uv package manager • 4GB RAM
+
+**Verify Prerequisites:**
+```bash
+# Verify you have the required versions
+python --version  # Should be 3.10+
+docker --version  # Should be 20.10+
+```
+
+### Installation
+
+```bash
+# 1. Clone and navigate
+git clone https://github.com/EverMind-AI/EverMemOS.git
+cd EverMemOS
+
+# 2. Start Docker services
+docker-compose up -d
+
+# 3. Install uv and dependencies
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+
+# 4. Configure API keys
+cp env.template .env
+# Edit .env and set:
+#   - LLM_API_KEY (for memory extraction)
+#   - VECTORIZE_API_KEY (for embedding/rerank)
+
+# 5. Start server
+uv run python src/run.py --port 8001
+
+# 6. Verify installation
+curl http://localhost:8001/health
+# Expected response: {"status": "healthy", ...}
+```
+
+✅ Server running at `http://localhost:8001` • [Full Setup Guide](docs/installation/SETUP.md)
+
+---
+
+## Basic Usage
+
+Store and retrieve memories with simple Python code:
+
+```python
+import requests
+
+API_BASE = "http://localhost:8001/api/v1"
+
+# 1. Store a conversation memory
+requests.post(f"{API_BASE}/memories", json={
+    "message_id": "msg_001",
+    "create_time": "2025-02-01T10:00:00+00:00",
+    "sender": "user_001",
+    "content": "I love playing soccer on weekends"
+})
+
+# 2. Search for relevant memories
+response = requests.get(f"{API_BASE}/memories/search", json={
+    "query": "What sports does the user like?",
+    "user_id": "user_001",
+    "memory_types": ["episodic_memory"],
+    "retrieve_method": "hybrid"
+})
+
+result = response.json().get("result", {})
+for memory_group in result.get("memories", []):
+    print(f"Memory: {memory_group}")
+```
+
+**Try it now**: `uv run python src/bootstrap.py demo/simple_demo.py` ([Demo Guide](docs/usage/DEMOS.md))
+
+📖 [More Examples](docs/usage/USAGE_EXAMPLES.md) • 📚 [API Reference](docs/api_docs/memory_api.md) • 🎯 [Interactive Demos](docs/usage/DEMOS.md)
+
+---
+
+## Advanced Techniques
+
+- **[Group Chat Conversations](docs/advanced/GROUP_CHAT_GUIDE.md)** - Combine messages from multiple speakers
+- **[Conversation Metadata Control](docs/advanced/METADATA_CONTROL.md)** - Fine-grained control over conversation context
+- **[Memory Retrieval Strategies](docs/advanced/RETRIEVAL_STRATEGIES.md)** - Lightweight vs Agentic retrieval modes
+- **[Batch Operations](docs/usage/BATCH_OPERATIONS.md)** - Process multiple messages efficiently
+
+---
+
+## Evaluation & Benchmarking
+
+EverMemOS achieves **93% overall accuracy** on the LoCoMo benchmark, outperforming comparable memory systems.
+
+### Benchmark Results
+
+<p align="center">
+  <img src="figs/benchmark_2.png" alt="EverMemOS Benchmark Results" width="800"/>
+</p>
+
+### Supported Benchmarks
+
+- **[LoCoMo](https://github.com/snap-research/locomo)** - Long-context memory benchmark with single/multi-hop reasoning
+- **[LongMemEval](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned)** - Multi-session conversation evaluation
+- **[PersonaMem](https://huggingface.co/datasets/bowen-upenn/PersonaMem)** - Persona-based memory evaluation
+
+### Quick Start
+
+```bash
+# Install evaluation dependencies
+uv sync --group evaluation
+
+# Run smoke test (quick verification)
+uv run python -m evaluation.cli --dataset locomo --system evermemos --smoke
+
+# Run full evaluation
+uv run python -m evaluation.cli --dataset locomo --system evermemos
+
+# View results
+cat evaluation/results/locomo-evermemos/report.txt
+```
+
+📊 [Full Evaluation Guide](evaluation/README.md) • 📈 [Complete Results](https://huggingface.co/datasets/EverMind-AI/EverMemOS_Eval_Results)
+
+---
+
+<!-- ## Hackathon
+
+Join our AI Memory Hackathon! Build innovative applications, plugins, or infrastructure improvements powered by EverMemOS.
+
+**Tracks:**
+- **Agent + Memory** - Build intelligent agents with long-term, evolving memories
+- **Platform Plugins** - Integrate EverMemOS with VSCode, Chrome, Slack, Notion, LangChain, and more
+- **OS Infrastructure** - Optimize core functionality and performance
+
+👉 **[Get Started with the Hackathon Starter Kit](docs/STARTER_KIT.md)** 👈
+
+Join our [Discord](https://discord.gg/pfwwskxp) to find teammates and brainstorm ideas!
+
+---
 
 ## Quick Start
 
@@ -214,35 +398,6 @@ See the [Demo Guide][demo-guide] for detailed instructions.
 
 </div>
 
-<!-- ## How It Works
-
-EverMemOS operates along two tracks: **memory construction** and **memory perception**.
-
-<br>
-
-### Memory Construction
-
-Builds structured, retrievable long-term memory from raw conversations.
-
-| Component | Purpose |
-| --------- | ------- |
-| **MemCell Extraction** | Identifies key information to generate atomic memory units |
-| **Memory Integration** | Organizes by theme and participants into episodes and profiles |
-| **Storage & Indexing** | Persists data with keyword and semantic indexes for fast recall |
-
-<br>
-
-### Memory Perception
-
-Recalls relevant memories through multi-round reasoning and intelligent fusion.
-
-| Strategy | Description |
-| -------- | ----------- |
-| **Hybrid Retrieval** | Parallel semantic + keyword search with RRF fusion |
-| **Intelligent Reranking** | Deep relevance scoring to prioritize critical information |
-| **Lightweight Mode** | Pure BM25 for latency-sensitive scenarios |
-| **Agentic Recall** | Multi-round query generation for complex intents | -->
-
 ## API Usage
 
 #### Store a Memory
@@ -341,7 +496,7 @@ See the [Evaluation Guide][evaluation-guide] for details.
 
 [![][back-to-top]][readme-top]
 
-</div>
+</div> -->
 
 ## Questions
 
@@ -350,7 +505,6 @@ EverMemOS is available on these AI-powered Q&A platforms. They can help you find
 | Service | Link |
 | ------- | ---- |
 | DeepWiki | [![Ask DeepWiki][deepwiki-badge]][deepwiki] |
-| ReadmeX | [![ReadmeX][readmex-badge]][readmex] |
 
 <br>
 <div align="right">

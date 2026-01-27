@@ -11,6 +11,7 @@ Provides RESTful API routes for:
 
 import json
 import logging
+import time
 from contextlib import suppress
 from fastapi import HTTPException, Request as FastAPIRequest
 
@@ -56,6 +57,14 @@ from service.memory_request_log_service import MemoryRequestLogService
 from service.memcell_delete_service import MemCellDeleteService
 from service.conversation_meta_service import ConversationMetaService
 from api_specs.memory_types import RawDataType
+from agentic_layer.metrics.memorize_metrics import (
+    record_memorize_request,
+    record_memorize_error,
+    record_memorize_message,
+    classify_memorize_error,
+    get_space_id_for_metrics,
+    get_raw_data_type_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +168,18 @@ class MemoryController(BaseController):
             HTTPException: When request processing fails
         """
         del request_body  # Used for OpenAPI documentation only
+        start_time = time.perf_counter()
+        memory_count = 0
+        # Get space_id for metrics (available from tenant context)
+        space_id = get_space_id_for_metrics()
+        # Default raw_data_type, will be updated after conversion
+        raw_data_type = get_raw_data_type_label(None)
+        
         try:
             # 1. Get JSON body from request (simple direct format)
             message_data = await request.json()
             logger.info("Received memorize request (single message)")
+ 
 
             # 2. Convert directly to MemorizeRequest (unified single-step conversion)
             logger.info(
@@ -170,6 +187,17 @@ class MemoryController(BaseController):
             )
             memorize_request = await convert_simple_message_to_memorize_request(
                 message_data
+            )
+
+            # Update raw_data_type from request (for subsequent metrics)
+            if memorize_request.raw_data_type:
+                raw_data_type = get_raw_data_type_label(memorize_request.raw_data_type.value)
+
+            record_memorize_message(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                status='received',
+                count=1,
             )
 
             # Extract metadata for logging
@@ -214,8 +242,18 @@ class MemoryController(BaseController):
             # Optimize return message to help users understand runtime status
             if memory_count > 0:
                 message = f"Extracted {memory_count} memories"
+                status = 'extracted'
             else:
                 message = "Message queued, awaiting boundary detection"
+                status = 'accumulated'
+
+            # Record success metrics
+            record_memorize_request(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                status=status,
+                duration_seconds=time.perf_counter() - start_time,
+            )
 
             return {
                 "status": ErrorStatus.OK.value,
@@ -229,12 +267,43 @@ class MemoryController(BaseController):
 
         except ValueError as e:
             logger.error("memorize request parameter error: %s", e)
+            record_memorize_error(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                stage='conversion',
+                error_type='validation_error',
+            )
+            record_memorize_request(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                status='error',
+                duration_seconds=time.perf_counter() - start_time,
+            )
             raise HTTPException(status_code=400, detail=str(e)) from e
         except HTTPException:
-            # Re-raise HTTPException
+            # Re-raise HTTPException (already handled errors)
+            record_memorize_request(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                status='error',
+                duration_seconds=time.perf_counter() - start_time,
+            )
             raise
         except Exception as e:
             logger.error("memorize request processing failed: %s", e, exc_info=True)
+            error_type = classify_memorize_error(e)
+            record_memorize_error(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                stage='memorize_process',
+                error_type=error_type,
+            )
+            record_memorize_request(
+                space_id=space_id,
+                raw_data_type=raw_data_type,
+                status='error',
+                duration_seconds=time.perf_counter() - start_time,
+            )
             raise HTTPException(
                 status_code=500, detail="Failed to store memory, please try again later"
             ) from e
@@ -380,14 +449,14 @@ class MemoryController(BaseController):
             - hybrid: hybrid retrieval (keyword + vector)
             - rrf: RRF fusion retrieval
             - agentic: LLM-guided multi-round retrieval
-        - **top_k** (optional): Max results (default: 10, max: 100)
+        - **radius** (optional): Similarity threshold (0.0-1.0) for vector search
         - **memory_types** (optional): List of memory types to search
             - episodic_memory
             - foresight
             - event_log
         - **start_time** (optional): Start time (ISO 8601)
         - **end_time** (optional): End time (ISO 8601)
-        - **radius** (optional): Similarity threshold (0.0-1.0) for vector search
+        - **top_k** (optional): Max results (default: 10, max: 100)
         - **include_metadata** (optional): Whether to include metadata (default: true)
         
         ## Result description:

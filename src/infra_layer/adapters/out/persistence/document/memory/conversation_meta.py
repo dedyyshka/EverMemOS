@@ -143,6 +143,8 @@ class ConversationMeta(DocumentBase, AuditBase):
             IndexModel(
                 [("group_id", ASCENDING)], name="idx_group_id_unique", unique=True
             ),
+            # Name index for search optimization (prefix match)
+            IndexModel([("name", ASCENDING)], name="idx_name"),
         ]
         validate_on_save = True
         use_state_management = True
