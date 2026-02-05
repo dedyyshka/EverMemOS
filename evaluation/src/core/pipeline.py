@@ -20,9 +20,6 @@ from evaluation.src.utils.logger import setup_logger, get_console
 from evaluation.src.utils.saver import ResultSaver
 from evaluation.src.utils.checkpoint import CheckpointManager
 
-# Import components for answer generation
-from memory_layer.llm.llm_provider import LLMProvider
-
 # Import stage execution functions
 from evaluation.src.core.stages.add_stage import run_add_stage
 from evaluation.src.core.stages.search_stage import run_search_stage
@@ -45,7 +42,7 @@ class Pipeline:
         self,
         adapter: BaseAdapter,
         evaluator: BaseEvaluator,
-        llm_provider: LLMProvider,
+        answer_config: Optional[Dict[str, Any]],
         output_dir: Path,
         run_name: str = "default",
         use_checkpoint: bool = True,
@@ -57,7 +54,7 @@ class Pipeline:
         Args:
             adapter: System adapter
             evaluator: Evaluator
-            llm_provider: LLM Provider for answer generation
+            answer_config: Конфиг ответа (dataset.answer)
             output_dir: Output directory
             run_name: Run name to distinguish different runs
             use_checkpoint: Enable checkpoint/resume functionality
@@ -65,7 +62,7 @@ class Pipeline:
         """
         self.adapter = adapter
         self.evaluator = evaluator
-        self.llm_provider = llm_provider
+        self.answer_config = answer_config or {}
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -377,6 +374,7 @@ class Pipeline:
                 search_results=search_results,
                 checkpoint_manager=self.checkpoint,
                 logger=self.logger,
+                answer_config=self.answer_config,
             )
 
             self.saver.save_json(

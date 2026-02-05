@@ -35,8 +35,12 @@ from evaluation.src.adapters.evermemos import (
 )
 
 # Import Memory Layer components
-from memory_layer.llm.llm_provider import LLMProvider
 from memory_layer.memory_extractor.event_log_extractor import EventLogExtractor
+from evaluation.src.clients import (
+    build_llm_client,
+    build_embeddings_client,
+    build_rerank_client,
+)
 
 
 @register_adapter("evermemos")
@@ -61,27 +65,25 @@ class EverMemOSAdapter(BaseAdapter):
         super().__init__(config)
         self.output_dir = Path(output_dir) if output_dir else Path(".")
 
-        # Initialize LLM Provider (shared across all stages)
-        # Read from YAML llm configuration
+        # Инициализация клиентов LLM/Embeddings/Rerank (единый контракт)
         llm_config = config.get("llm", {})
+        vectorize_config = config.get("vectorize", {})
+        rerank_config = config.get("rerank", {})
 
-        self.llm_provider = LLMProvider(
-            provider_type=llm_config.get("provider", "openai"),
-            model=llm_config.get("model", "gpt-4o-mini"),
-            api_key=llm_config.get("api_key", ""),
-            base_url=llm_config.get("base_url", "https://api.openai.com/v1"),
-            temperature=llm_config.get("temperature", 0.3),
-            max_tokens=llm_config.get("max_tokens", 32768),
-        )
+        self.llm_client = build_llm_client(llm_config)
+        self.embeddings_client = build_embeddings_client(vectorize_config)
+        self.rerank_client = build_rerank_client(rerank_config)
 
         # Initialize Event Log Extractor
-        self.event_log_extractor = EventLogExtractor(llm_provider=self.llm_provider)
+        self.event_log_extractor = EventLogExtractor(llm_provider=self.llm_client)
 
         # Ensure NLTK data is available
         stage2_index_building.ensure_nltk_data()
 
         print(f"✅ EverMemOS Adapter initialized")
         print(f"   LLM Model: {llm_config.get('model')}")
+        print(f"   Embeddings Model: {vectorize_config.get('model')}")
+        print(f"   Rerank Model: {rerank_config.get('model')}")
         print(f"   Output Dir: {self.output_dir}")
 
     @staticmethod
@@ -300,7 +302,7 @@ class EverMemOSAdapter(BaseAdapter):
                         conv_id=conv_index,  # Use extracted index
                         conversation=raw_data_dict[conv_id],  # Data uses original ID
                         save_dir=str(memcells_dir),
-                        llm_provider=self.llm_provider,
+                        llm_provider=self.llm_client,
                         event_log_extractor=self.event_log_extractor,
                         progress_counter=None,
                         progress=progress,
@@ -414,7 +416,10 @@ class EverMemOSAdapter(BaseAdapter):
                     style="yellow",
                 )
                 await stage2_index_building.build_emb_index(
-                    config=exp_config, data_dir=memcells_dir, emb_save_dir=emb_index_dir
+                    config=exp_config,
+                    data_dir=memcells_dir,
+                    emb_save_dir=emb_index_dir,
+                    embeddings_client=self.embeddings_client,
                 )
                 console.print("✅ Embedding index building completed", style="green")
             else:
@@ -500,8 +505,10 @@ class EverMemOSAdapter(BaseAdapter):
             top_results, metadata = await stage3_memory_retrivel.agentic_retrieval(
                 query=query,
                 config=exp_config,
-                llm_provider=self.llm_provider,
+                llm_client=self.llm_client,
                 llm_config=llm_config,
+                embeddings_client=self.embeddings_client,
+                rerank_client=self.rerank_client,
                 emb_index=emb_index,
                 bm25=bm25,
                 docs=docs,
@@ -514,6 +521,7 @@ class EverMemOSAdapter(BaseAdapter):
                 bm25=bm25,
                 docs=docs,
                 config=exp_config,
+                embeddings_client=self.embeddings_client,
             )
         else:
             # Default to hybrid retrieval
@@ -526,6 +534,7 @@ class EverMemOSAdapter(BaseAdapter):
                 emb_candidates=search_config.get("hybrid_emb_candidates", 100),
                 bm25_candidates=search_config.get("hybrid_bm25_candidates", 100),
                 rrf_k=search_config.get("hybrid_rrf_k", 60),
+                embeddings_client=self.embeddings_client,
             )
             metadata = {}
 
@@ -590,17 +599,24 @@ class EverMemOSAdapter(BaseAdapter):
 
         Calls stage4_response.py implementation.
         """
+        llm_client = kwargs.get("llm_client", self.llm_client)
         # Call stage4 answer generation implementation
         exp_config = self._convert_config_to_experiment_config()
 
         answer = await stage4_response.locomo_response(
-            llm_provider=self.llm_provider,
+            llm_client=llm_client,
             context=context,
             question=query,
             experiment_config=exp_config,
         )
 
         return answer
+
+    async def close(self) -> None:
+        """Закрыть ресурсы клиентов."""
+        await self.llm_client.close()
+        await self.embeddings_client.close()
+        await self.rerank_client.close()
 
     def get_system_info(self) -> Dict[str, Any]:
         """Return system info."""
@@ -649,6 +665,14 @@ class EverMemOSAdapter(BaseAdapter):
             exp_config.enable_profile_extraction = add_config[
                 "enable_profile_extraction"
             ]
+        if "event_log_max_concurrent" in add_config:
+            exp_config.event_log_max_concurrent = add_config["event_log_max_concurrent"]
+        if "emb_index_batch_size" in add_config:
+            exp_config.emb_index_batch_size = add_config["emb_index_batch_size"]
+        if "emb_index_max_concurrent_batches" in add_config:
+            exp_config.emb_index_max_concurrent_batches = add_config[
+                "emb_index_max_concurrent_batches"
+            ]
 
         # Map Search stage configuration (only override explicitly specified in YAML)
         search_config = self.config.get("search", {})
@@ -662,6 +686,20 @@ class EverMemOSAdapter(BaseAdapter):
             exp_config.lightweight_search_mode = search_config[
                 "lightweight_search_mode"
             ]
+        if "reranker_concurrent_batches" in search_config:
+            exp_config.reranker_concurrent_batches = search_config[
+                "reranker_concurrent_batches"
+            ]
+        if "agentic_qa_max_concurrent" in search_config:
+            exp_config.agentic_qa_max_concurrent = search_config[
+                "agentic_qa_max_concurrent"
+            ]
+        if "qa_max_concurrent" in search_config:
+            exp_config.qa_max_concurrent = search_config["qa_max_concurrent"]
+
+        response_config = self.config.get("response", {})
+        if "max_concurrent" in response_config:
+            exp_config.response_max_concurrent = response_config["max_concurrent"]
 
         return exp_config
 

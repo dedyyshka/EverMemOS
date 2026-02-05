@@ -1,4 +1,4 @@
-# PersonaMem Dataset Configuration
+﻿# PersonaMem Dataset Configuration
 
 name: "personamem"
 version: "1.0"
@@ -11,22 +11,51 @@ memory_language: "en"
 data:
   path: "personamem"  # Directory containing raw and converted files
   format: "personamem"  # Needs conversion to Locomo format
-  
+
   # Converter will look for:
   # - personamem/questions_32k.csv (raw)
   # - personamem/shared_contexts_32k.jsonl (raw)
   # - personamem/personamem_32k_locomo_style.json (converted, auto-generated)
 
+# Answer generation configuration
+answer:
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 32768
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+  max_retries: 3
+  max_concurrent: 50
+  timeout_seconds: 120
+
 # Evaluation configuration
 evaluation:
-  type: "exact_match"  # PersonaMem is a multiple-choice question, use exact match
-  
+  type: "exact_match"  # PersonaMem is multiple-choice, use exact match
+
+  # LLM Judge settings (not used for exact_match, kept for unified schema)
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 2048
+    timeout: 60
+    max_retries: 3
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+
+  num_runs: 3
+  num_workers: 10
+
   # Exact match settings
   case_sensitive: false  # Case insensitive
   normalize_whitespace: true  # Normalize whitespace
   extract_choice: true  # Extract options from the generated answer (like (a), (b))
-  
-  # PersonaMem categories: 
+
+  # PersonaMem categories:
   # "recall_user_shared_facts", "provide_preference_aligned_recommendations",
   # "suggest_new_ideas", "recalling_the_reasons_behind_previous_updates",
   # "track_full_preference_evolution", "generalizing_to_new_scenarios",

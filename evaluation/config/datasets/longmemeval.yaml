@@ -1,4 +1,4 @@
-# LongMemEval Dataset Configuration
+﻿# LongMemEval Dataset Configuration
 
 name: "longmemeval"
 version: "1.0"
@@ -11,26 +11,46 @@ memory_language: "en"
 data:
   path: "longmemeval"  # Directory containing raw and converted files
   format: "longmemeval"  # Needs conversion to Locomo format
-  
+
   # Converter will look for:
   # - longmemeval/longmemeval_s_cleaned.json (raw)
   # - longmemeval/longmemeval_s_locomo_style.json (converted, auto-generated)
-  
+
   # Content length limit (for very long messages)
   max_content_length: 8000  # Truncate messages longer than this (characters)
+
+# Answer generation configuration
+answer:
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 32768
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+  max_retries: 3
+  max_concurrent: 50
+  timeout_seconds: 120
 
 # Evaluation configuration
 evaluation:
   type: "llm_judge"
-  
+
   llm:
-    provider: "openai"
-    model: "gpt-4o-mini"
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
     api_key: "${LLM_API_KEY}"
-    base_url: "${LLM_BASE_URL:https://openrouter.ai/api/v1}"
-  
+    temperature: 0.0
+    max_tokens: 2048
+    timeout: 60
+    max_retries: 3
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+
   num_runs: 3
-  
+  num_workers: 10
+
   # LongMemEval categories: "single-session-user", "multi-session-user", etc.
   filter_category: []  # If you need to filter, add to the list: ["single-session-user", ...]
 

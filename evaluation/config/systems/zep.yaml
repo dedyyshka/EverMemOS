@@ -1,4 +1,4 @@
-# Zep System Configuration
+﻿# Zep System Configuration
 
 name: "zep"
 version: "1.0"
@@ -23,7 +23,7 @@ llm:
   provider: "openai"
   model: "openai/gpt-4.1-mini"
   api_key: "${LLM_API_KEY}"
-  base_url: "${LLM_BASE_URL:https://openrouter.ai/api/v1}"
+  base_url: "${LLM_BASE_URL:https://foundation-models.api.cloud.ru/v1/}"
   temperature: 0
   max_tokens: 32768
 
@@ -36,3 +36,4 @@ search:
 # Answer configuration
 answer:
   max_retries: 3
+

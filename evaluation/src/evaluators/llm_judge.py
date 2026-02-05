@@ -12,13 +12,14 @@ import json
 import numpy as np
 from typing import List, Dict, Any
 from collections import defaultdict
-from openai import AsyncOpenAI
 from tqdm import tqdm
 
 from evaluation.src.evaluators.base import BaseEvaluator
 from evaluation.src.evaluators.registry import register_evaluator
 from evaluation.src.core.data_models import AnswerResult, EvaluationResult
 from evaluation.src.utils.prompts import get_prompt, format_prompt
+from evaluation.src.clients.factory import build_llm_client
+from evaluation.src.clients.types import ClientConfigError
 
 
 @register_evaluator("llm_judge")
@@ -28,13 +29,13 @@ class LLMJudge(BaseEvaluator):
     def __init__(self, config: dict):
         super().__init__(config)
 
-        # Initialize OpenAI client
         llm_config = config.get("llm", {})
-        self.client = AsyncOpenAI(
-            api_key=llm_config.get("api_key"),
-            base_url=llm_config.get("base_url", "https://api.openai.com/v1"),
-        )
-        self.model = llm_config.get("model", "gpt-4o-mini")
+        try:
+            self.llm_client = build_llm_client(llm_config)
+        except ClientConfigError as exc:
+            raise ValueError(f"LLM judge config error: {exc}") from exc
+
+        self.model = llm_config.get("model", "")
         self.num_runs = config.get("num_runs", 3)
 
     async def evaluate(self, answer_results: List[AnswerResult]) -> EvaluationResult:
@@ -54,7 +55,8 @@ class LLMJudge(BaseEvaluator):
         detailed_results = []
 
         # Evaluate all answers concurrently
-        semaphore = asyncio.Semaphore(10)  # Limit concurrency
+        num_workers = int(self.config.get("num_workers", 10))
+        semaphore = asyncio.Semaphore(num_workers)
 
         # Use tqdm progress bar
         pbar = tqdm(total=len(answer_results), desc="⚖️  Evaluate Progress", unit="qa")
@@ -241,16 +243,16 @@ class LLMJudge(BaseEvaluator):
         )
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+            content = await self.llm_client.generate(
+                prompt=user_prompt,
                 temperature=0,
+                extra_body={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ]
+                },
             )
-
-            content = response.choices[0].message.content
 
             # Debug: check if content is empty or None
             if not content:

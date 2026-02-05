@@ -13,7 +13,7 @@ import asyncio
 
 
 from evaluation.src.adapters.evermemos.config import ExperimentConfig
-from agentic_layer.vectorize_service import get_vectorize_service
+from evaluation.src.clients.embeddings_client import EmbeddingsClient
 
 
 def ensure_nltk_data():
@@ -167,7 +167,12 @@ def build_bm25_index(
             pickle.dump(index_data, f)
 
 
-async def build_emb_index(config: ExperimentConfig, data_dir: Path, emb_save_dir: Path):
+async def build_emb_index(
+    config: ExperimentConfig,
+    data_dir: Path,
+    emb_save_dir: Path,
+    embeddings_client: EmbeddingsClient,
+):
     """
     Build Embedding index (stable version).
 
@@ -179,14 +184,17 @@ async def build_emb_index(config: ExperimentConfig, data_dir: Path, emb_save_dir
 
     Optimization effects:
     - Stability first, avoid timeouts and API overload
-    - API concurrency: 5 (controlled by vectorize_service.Semaphore)
+    - API concurrency: 5 (controlled by embeddings_client semaphore)
     - Batch size: 256 (balance stability and efficiency)
     """
+    if embeddings_client is None:
+        raise ValueError("Embeddings client не задан для build_emb_index.")
+
     # Conservative batch size (avoid timeouts)
-    BATCH_SIZE = (
-        256  # Use larger batches (single API call processes more, reduce request count)
+    BATCH_SIZE = getattr(config, "emb_index_batch_size", 256)
+    MAX_CONCURRENT_BATCHES = getattr(
+        config, "emb_index_max_concurrent_batches", 5
     )
-    MAX_CONCURRENT_BATCHES = 5  # Strictly control concurrency (match Semaphore(5))
 
     import time  # For performance statistics
 
@@ -257,10 +265,8 @@ async def build_emb_index(config: ExperimentConfig, data_dir: Path, emb_save_dir
             """Process single batch (async + retry)."""
             for attempt in range(max_retries):
                 try:
-                    # Call API to get embeddings (concurrency controlled by Semaphore(5))
-                    batch_embeddings = await get_vectorize_service().get_embeddings(
-                        batch_texts
-                    )
+                    # Call API to get embeddings (concurrency controlled by client semaphore)
+                    batch_embeddings = await embeddings_client.get_embeddings(batch_texts)
                     return (batch_idx, batch_embeddings)
                 except Exception as e:
                     if attempt < max_retries - 1:
@@ -384,7 +390,10 @@ async def main():
     os.makedirs(emb_save_dir, exist_ok=True)
     build_bm25_index(config, data_dir, bm25_save_dir)
     if config.use_emb:
-        await build_emb_index(config, data_dir, emb_save_dir)
+        print(
+            "❌ build_emb_index требует EmbeddingsClient. Запускай через evaluation/cli.py."
+        )
+        return
     # data_dir = Path("/Users/admin/Documents/Projects/b001-memsys/evaluation/locomo_evaluation/results/locomo_evaluation_0/")
 
     # Where to save the final index file

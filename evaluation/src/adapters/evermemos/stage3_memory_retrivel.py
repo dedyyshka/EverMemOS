@@ -3,7 +3,7 @@ import os
 import sys
 import pickle
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 import time
 
 import nltk
@@ -19,12 +19,18 @@ from evaluation.src.adapters.evermemos.config import ExperimentConfig
 
 # from evaluation.src.adapters.evermemos.tools.embedding_provider import EmbeddingProvider
 # from evaluation.src.adapters.evermemos.tools.reranker_provider import RerankerProvider
-from agentic_layer.vectorize_service import get_vectorize_service
-from agentic_layer import rerank_service
+from evaluation.src.clients.embeddings_client import EmbeddingsClient
+from evaluation.src.clients.rerank_client import RerankClient
+from evaluation.src.clients.llm_client import LLMClient
+from evaluation.src.clients.factory import (
+    build_llm_client,
+    build_embeddings_client,
+    build_rerank_client,
+)
+from evaluation.src.clients.types import ClientConfigError
 
 from evaluation.src.adapters.evermemos.tools import agentic_utils
 
-from memory_layer.llm.llm_provider import LLMProvider
 
 
 # This file depends on the rank_bm25 library.
@@ -319,7 +325,12 @@ def multi_rrf_fusion(
 
 
 async def lightweight_retrieval(
-    query: str, emb_index, bm25, docs, config: ExperimentConfig
+    query: str,
+    emb_index,
+    bm25,
+    docs,
+    config: ExperimentConfig,
+    embeddings_client: EmbeddingsClient,
 ) -> Tuple[List[Tuple[dict, float]], dict]:
     """
     Lightweight fast retrieval (no LLM calls, pure algorithmic retrieval).
@@ -375,7 +386,10 @@ async def lightweight_retrieval(
     elif search_mode == "emb_only":
         # Embedding only mode: semantic matching
         emb_results = await search_with_emb_index(
-            query, emb_index, top_n=config.lightweight_emb_top_n
+            query,
+            emb_index,
+            top_n=config.lightweight_emb_top_n,
+            embeddings_client=embeddings_client,
         )
         metadata["emb_count"] = len(emb_results)
         final_results = emb_results[: config.lightweight_final_top_n]
@@ -384,7 +398,10 @@ async def lightweight_retrieval(
         # Hybrid mode (default fallback): BM25 + Embedding + RRF fusion
         # Execute Embedding and BM25 retrieval in parallel
         emb_task = search_with_emb_index(
-            query, emb_index, top_n=config.lightweight_emb_top_n
+            query,
+            emb_index,
+            top_n=config.lightweight_emb_top_n,
+            embeddings_client=embeddings_client,
         )
         bm25_task = asyncio.to_thread(
             search_with_bm25_index, query, bm25, docs, config.lightweight_bm25_top_n
@@ -420,6 +437,7 @@ async def search_with_emb_index(
     emb_index,
     top_n: int = 5,
     query_embedding: Optional[np.ndarray] = None,  # Support pre-computed embedding
+    embeddings_client: EmbeddingsClient = None,
 ):
     """
     Execute embedding retrieval using MaxSim strategy.
@@ -447,7 +465,9 @@ async def search_with_emb_index(
     if query_embedding is not None:
         query_vec = query_embedding
     else:
-        query_vec = np.array(await get_vectorize_service().get_embedding(query))
+        if embeddings_client is None:
+            raise ValueError("Embeddings client не задан для поиска.")
+        query_vec = np.array(await embeddings_client.get_embedding(query))
 
     query_norm = np.linalg.norm(query_vec)
 
@@ -508,6 +528,7 @@ async def hybrid_search_with_rrf(
     bm25_candidates: int = 50,
     rrf_k: int = 60,
     query_embedding: Optional[np.ndarray] = None,  # Support pre-computed embedding
+    embeddings_client: EmbeddingsClient = None,
 ) -> List[Tuple[dict, float]]:
     """
     Fuse Embedding and BM25 retrieval results using RRF (hybrid retrieval).
@@ -558,7 +579,11 @@ async def hybrid_search_with_rrf(
     """
     # Execute Embedding and BM25 retrieval in parallel (improve efficiency)
     emb_task = search_with_emb_index(
-        query, emb_index, top_n=emb_candidates, query_embedding=query_embedding
+        query,
+        emb_index,
+        top_n=emb_candidates,
+        query_embedding=query_embedding,
+        embeddings_client=embeddings_client,
     )
     bm25_task = asyncio.to_thread(
         search_with_bm25_index, query, bm25, docs, bm25_candidates
@@ -591,8 +616,10 @@ async def hybrid_search_with_rrf(
 async def agentic_retrieval(
     query: str,
     config: ExperimentConfig,
-    llm_provider: LLMProvider,  # Use LLMProvider
+    llm_client: LLMClient,
     llm_config: dict,
+    embeddings_client: EmbeddingsClient,
+    rerank_client: RerankClient,
     emb_index,
     bm25,
     docs,
@@ -611,8 +638,10 @@ async def agentic_retrieval(
     Args:
         query: User query
         config: Experiment configuration
-        llm_provider: LLM Provider (Memory Layer)
+        llm_client: LLM Client (eval)
         llm_config: LLM configuration dict
+        embeddings_client: Embeddings client
+        rerank_client: Rerank client
         emb_index: Embedding index
         bm25: BM25 index
         docs: Document list
@@ -653,6 +682,7 @@ async def agentic_retrieval(
         emb_candidates=config.hybrid_emb_candidates,
         bm25_candidates=config.hybrid_bm25_candidates,
         rrf_k=config.hybrid_rrf_k,
+        embeddings_client=embeddings_client,
     )
 
     metadata["round1_count"] = len(round1_top20)
@@ -678,6 +708,7 @@ async def agentic_retrieval(
             timeout=config.reranker_timeout,
             fallback_threshold=config.reranker_fallback_threshold,
             config=config,
+            rerank_client=rerank_client,
         )
         metadata["round1_reranked_count"] = len(reranked_top10)
         print(f"  [Rerank] Got Top 10 for sufficiency check")
@@ -699,7 +730,7 @@ async def agentic_retrieval(
         await agentic_utils.check_sufficiency(
             query=query,
             results=reranked_top10,  # Use reranked Top 10
-            llm_provider=llm_provider,  # Use LLMProvider
+            llm_provider=llm_client,
             llm_config=llm_config,
             max_docs=10,  # Explicitly check only 10 documents
         )
@@ -743,7 +774,7 @@ async def agentic_retrieval(
             original_query=query,
             results=reranked_top10,  # Based on Top 10 generate improved queries
             missing_info=missing_info,
-            llm_provider=llm_provider,  # Use LLMProvider
+            llm_provider=llm_client,
             llm_config=llm_config,
             key_info=key_info,  # New: pass found key information
             max_docs=10,
@@ -768,6 +799,7 @@ async def agentic_retrieval(
                 emb_candidates=config.hybrid_emb_candidates,
                 bm25_candidates=config.hybrid_bm25_candidates,
                 rrf_k=config.hybrid_rrf_k,
+                embeddings_client=embeddings_client,
             )
             for q in refined_queries
         ]
@@ -806,7 +838,7 @@ async def agentic_retrieval(
             original_query=query,
             results=reranked_top10,
             missing_info=missing_info,
-            llm_provider=llm_provider,
+            llm_provider=llm_client,
             llm_config=llm_config,
             key_info=key_info,  # New: pass found key information
             max_docs=10,
@@ -827,6 +859,7 @@ async def agentic_retrieval(
             emb_candidates=config.hybrid_emb_candidates,
             bm25_candidates=config.hybrid_bm25_candidates,
             rrf_k=config.hybrid_rrf_k,
+            embeddings_client=embeddings_client,
         )
 
         metadata["round2_count"] = len(round2_results)
@@ -873,6 +906,7 @@ async def agentic_retrieval(
             timeout=config.reranker_timeout,
             fallback_threshold=config.reranker_fallback_threshold,
             config=config,
+            rerank_client=rerank_client,
         )
 
         print(f"  [Rerank] Final Top 20 selected")
@@ -903,6 +937,7 @@ async def reranker_search(
     timeout: float = 30.0,  # Single batch timeout
     fallback_threshold: float = 0.3,  # Fallback threshold
     config: ExperimentConfig = None,  # Experiment configuration (for getting concurrency)
+    rerank_client: RerankClient = None,
 ):
     """
     Rerank retrieval results using reranker model (supports batch concurrent processing + enhanced stability).
@@ -935,6 +970,7 @@ async def reranker_search(
         retry_delay: Base retry delay in seconds (default 2.0, exponential backoff)
         timeout: Single batch timeout in seconds (default 30)
         fallback_threshold: Fallback when success rate below this value (default 0.3)
+        rerank_client: Клиент rerank (обязателен)
 
     Returns:
         Reranked Top-N result list
@@ -985,7 +1021,8 @@ async def reranker_search(
     if not doc_texts:
         return []
 
-    reranker = rerank_service.get_rerank_service()
+    if rerank_client is None:
+        raise ValueError("Rerank client не задан для reranker_search.")
     print(f"Reranking query: {query}")
     print(f"Reranking {len(doc_texts)} documents in batches of {batch_size}...")
     print(f"Reranking instruction: {reranker_instruction}")
@@ -1006,7 +1043,7 @@ async def reranker_search(
             try:
                 # Add timeout protection
                 batch_results = await asyncio.wait_for(
-                    reranker.rerank_documents(
+                    rerank_client.rerank_documents(
                         query, batch_texts, instruction=reranker_instruction
                     ),
                     timeout=timeout,
@@ -1143,30 +1180,63 @@ async def main():
     # Ensure NLTK data is ready
     ensure_nltk_data()
 
-    # Initialize LLM Provider (for Agentic retrieval)
-    llm_provider = None
+    # Initialize clients from env for standalone запуск
+    llm_client = None
     llm_config = None
-    if config.use_agentic_retrieval:
-        if agentic_utils is None:
-            print("Error: agentic_utils not found, cannot use agentic retrieval")
-            print("Please check that tools/agentic_utils.py exists")
-            return
+    embeddings_client = None
+    rerank_client = None
 
-        llm_config = config.llm_config.get(
-            config.llm_service, config.llm_config["openai"]
-        )
+    def _env(name: str) -> str:
+        return os.getenv(name, "").strip()
 
-        # Use Memory Layer's LLMProvider instead of AsyncOpenAI
-        llm_provider = LLMProvider(
-            provider_type="openai",
-            model=llm_config["model"],
-            api_key=llm_config["api_key"],
-            base_url=llm_config["base_url"],
-            temperature=llm_config.get("temperature", 0.3),
-            max_tokens=llm_config.get("max_tokens", 32768),
-        )
-        print(f"✅ LLM Provider initialized for agentic retrieval")
-        print(f"   Model: {llm_config['model']}")
+    def _env_int(name: str, default: int = 0) -> int:
+        value = _env(name)
+        if not value:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    try:
+        if config.use_emb or config.use_hybrid_search:
+            vectorize_config = {
+                "provider": _env("VECTORIZE_PROVIDER"),
+                "model": _env("VECTORIZE_MODEL"),
+                "base_url": _env("VECTORIZE_BASE_URL"),
+                "api_key": _env("VECTORIZE_API_KEY"),
+                "dimensions": _env_int("VECTORIZE_DIMENSIONS", 0),
+            }
+            embeddings_client = build_embeddings_client(vectorize_config)
+
+        if config.use_reranker:
+            rerank_config = {
+                "provider": _env("RERANK_PROVIDER"),
+                "model": _env("RERANK_MODEL"),
+                "base_url": _env("RERANK_BASE_URL"),
+                "api_key": _env("RERANK_API_KEY"),
+            }
+            rerank_client = build_rerank_client(rerank_config)
+
+        if config.use_agentic_retrieval:
+            if agentic_utils is None:
+                print("Error: agentic_utils not found, cannot use agentic retrieval")
+                print("Please check that tools/agentic_utils.py exists")
+                return
+
+            llm_config = {
+                "provider": _env("LLM_PROVIDER"),
+                "model": _env("LLM_MODEL"),
+                "base_url": _env("LLM_BASE_URL"),
+                "api_key": _env("LLM_API_KEY"),
+                "openrouter_provider": _env("LLM_OPENROUTER_PROVIDER"),
+            }
+            llm_client = build_llm_client(llm_config)
+            print("✅ LLM client initialized for agentic retrieval")
+            print(f"   Model: {llm_config['model']}")
+    except ClientConfigError as exc:
+        print(f"❌ Ошибка конфигурации клиентов: {exc}")
+        return
 
     # Load the dataset
     print(f"Loading dataset from: {dataset_path}")
@@ -1267,7 +1337,11 @@ async def main():
 
         # Parallelize per-question retrieval with bounded concurrency
         # Increase concurrency: also use higher concurrency for Agentic retrieval (10 -> 20)
-        max_concurrent = 20 if config.use_agentic_retrieval else 128
+        max_concurrent = (
+            getattr(config, "agentic_qa_max_concurrent", 20)
+            if config.use_agentic_retrieval
+            else getattr(config, "qa_max_concurrent", 128)
+        )
         sem = asyncio.Semaphore(max_concurrent)
 
         if config.use_agentic_retrieval:
@@ -1297,8 +1371,10 @@ async def main():
                         top_results, retrieval_metadata = await agentic_retrieval(
                             query=question,
                             config=config,
-                            llm_provider=llm_provider,  # Use LLMProvider
+                            llm_client=llm_client,
                             llm_config=llm_config,
+                            embeddings_client=embeddings_client,
+                            rerank_client=rerank_client,
                             emb_index=emb_index,
                             bm25=bm25,
                             docs=docs,
@@ -1312,6 +1388,7 @@ async def main():
                             bm25=bm25,
                             docs=docs,
                             config=config,
+                            embeddings_client=embeddings_client,
                         )
 
                     else:
@@ -1329,6 +1406,7 @@ async def main():
                                     emb_candidates=config.hybrid_emb_candidates,
                                     bm25_candidates=config.hybrid_bm25_candidates,
                                     rrf_k=config.hybrid_rrf_k,
+                                    embeddings_client=embeddings_client,
                                 )
                             elif config.use_emb:
                                 # Use Embedding + MaxSim retrieval only
@@ -1336,6 +1414,7 @@ async def main():
                                     query=question,
                                     emb_index=emb_index,
                                     top_n=config.emb_recall_top_n,
+                                    embeddings_client=embeddings_client,
                                 )
                             else:
                                 # Use BM25 retrieval only
@@ -1359,6 +1438,7 @@ async def main():
                                 timeout=config.reranker_timeout,
                                 fallback_threshold=config.reranker_fallback_threshold,
                                 config=config,
+                                rerank_client=rerank_client,
                             )
                         else:
                             # Single-stage retrieval (not using Reranker)
@@ -1372,10 +1452,14 @@ async def main():
                                     emb_candidates=config.hybrid_emb_candidates,
                                     bm25_candidates=config.hybrid_bm25_candidates,
                                     rrf_k=config.hybrid_rrf_k,
+                                    embeddings_client=embeddings_client,
                                 )
                             elif config.use_emb:
                                 top_results = await search_with_emb_index(
-                                    query=question, emb_index=emb_index, top_n=20
+                                    query=question,
+                                    emb_index=emb_index,
+                                    top_n=20,
+                                    embeddings_client=embeddings_client,
                                 )
                             else:
                                 top_results = await asyncio.to_thread(
@@ -1464,10 +1548,12 @@ async def main():
             print(f"⚠️  Failed to remove checkpoint: {e}")
 
     # Clean up resources
-    reranker = rerank_service.get_rerank_service()
-    # Assuming the service is DeepInfraRerankService, which has a close method.
-    if hasattr(reranker, 'close') and callable(getattr(reranker, 'close')):
-        await reranker.close()
+    if llm_client:
+        await llm_client.close()
+    if embeddings_client:
+        await embeddings_client.close()
+    if rerank_client:
+        await rerank_client.close()
 
 
 if __name__ == "__main__":

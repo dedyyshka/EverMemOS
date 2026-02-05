@@ -206,7 +206,8 @@ class EventLogExtractor:
 
         # Validate atomic_fact is not empty
         if len(event_log_data["atomic_fact"]) == 0:
-            raise ValueError("atomic_fact list is empty")
+            logger.warning("Пустой atomic_fact: пропускаем event_log для этого memcell")
+            return None
 
         # 6. Batch generate embedding for all atomic_fact (performance optimization)
         from agentic_layer.vectorize_service import get_vectorize_service

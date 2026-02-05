@@ -33,20 +33,29 @@ def _replace_env_vars(obj: Any) -> Any:
     """
     Recursively replace environment variables in configuration.
     
-    Supported format: ${VAR_NAME} or ${VAR_NAME:default_value}
+    Supported format: ${VAR_NAME}
     """
     if isinstance(obj, dict):
         return {key: _replace_env_vars(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [_replace_env_vars(item) for item in obj]
     elif isinstance(obj, str):
-        # Match ${VAR_NAME} or ${VAR_NAME:default}
+        # Match ${VAR_NAME} (fallbacks запрещены)
         pattern = r'\$\{([^:}]+)(?::([^}]+))?\}'
         
         def replacer(match):
             var_name = match.group(1)
-            default_value = match.group(2) if match.group(2) else ''
-            return os.environ.get(var_name, default_value)
+            default_value = match.group(2)
+            if default_value is not None:
+                raise ValueError(
+                    f"Запрещён fallback для env-переменной '{var_name}'. "
+                    "Используй только ${VAR} без значения по умолчанию."
+                )
+            if var_name not in os.environ:
+                raise ValueError(
+                    f"Не задана обязательная env-переменная '{var_name}'."
+                )
+            return os.environ.get(var_name, "")
         
         return re.sub(pattern, replacer, obj)
     else:

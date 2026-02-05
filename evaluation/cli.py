@@ -9,6 +9,7 @@ Usage:
 
 import asyncio
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -36,7 +37,6 @@ from evaluation.src.evaluators.registry import create_evaluator
 from evaluation.src.utils.config import load_yaml
 from evaluation.src.utils.logger import get_console
 
-from memory_layer.llm.llm_provider import LLMProvider
 
 
 def deep_merge_config(base: dict, override: dict) -> dict:
@@ -63,6 +63,8 @@ def deep_merge_config(base: dict, override: dict) -> dict:
 
 async def main():
     """Main function."""
+    logging.getLogger("asyncio").setLevel(logging.ERROR)
+    asyncio.get_running_loop().set_debug(False)
     parser = argparse.ArgumentParser(description="Memory System Evaluation Framework")
 
     parser.add_argument(
@@ -173,6 +175,13 @@ async def main():
             f"  🔧 Applied dataset overrides for {args.dataset}: {list(overrides.keys())}"
         )
 
+    search_config = system_config.get("search", {})
+    search_mode = search_config.get("mode", "agentic")
+    console.print(f"  🔎 Search mode: {search_mode}")
+    if search_mode == "lightweight":
+        lightweight_mode = search_config.get("lightweight_search_mode", "bm25_only")
+        console.print(f"     lightweight_search_mode: {lightweight_mode}")
+
     # Load dataset
     console.print(f"\n[bold cyan]Loading dataset: {args.dataset}[/bold cyan]")
 
@@ -243,18 +252,6 @@ async def main():
     )
     console.print(f"  ✅ Created evaluator: {evaluator.get_name()}")
 
-    # Create LLM Provider for answer generation
-    llm_config = system_config.get("llm", {})
-    llm_provider = LLMProvider(
-        provider_type=llm_config.get("provider", "openai"),
-        model=llm_config.get("model"),
-        api_key=llm_config.get("api_key"),
-        base_url=llm_config.get("base_url"),
-        temperature=llm_config.get("temperature", 0.0),
-        max_tokens=llm_config.get("max_tokens", 32768),
-    )
-    console.print(f"  Created LLM provider: {llm_config.get('model')}")
-
     # Create pipeline
     # Read filter categories from dataset configuration
     filter_categories = dataset_config.get("evaluation", {}).get("filter_category", [])
@@ -262,7 +259,7 @@ async def main():
     pipeline = Pipeline(
         adapter=adapter,
         evaluator=evaluator,
-        llm_provider=llm_provider,
+        answer_config=dataset_config.get("answer", {}),
         output_dir=output_dir,
         filter_categories=filter_categories,
     )

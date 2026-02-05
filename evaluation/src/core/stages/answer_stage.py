@@ -10,6 +10,8 @@ from tqdm import tqdm
 from evaluation.src.core.data_models import QAPair, SearchResult, AnswerResult
 from evaluation.src.adapters.base import BaseAdapter
 from evaluation.src.utils.checkpoint import CheckpointManager
+from evaluation.src.clients.factory import build_llm_client
+from evaluation.src.clients.types import ClientConfigError
 
 
 def build_context(search_result: SearchResult) -> str:
@@ -58,6 +60,7 @@ async def run_answer_stage(
     search_results: List[SearchResult],
     checkpoint_manager: Optional[CheckpointManager],
     logger: Logger,
+    answer_config: dict,
 ) -> List[AnswerResult]:
     """
     Generate answers with fine-grained checkpointing.
@@ -79,8 +82,10 @@ async def run_answer_stage(
     print(f"{'='*60}")
     
     SAVE_INTERVAL = 400  # Save every 400 tasks
-    MAX_CONCURRENT = 50  # Max concurrency
-    
+    MAX_CONCURRENT = answer_config.get("max_concurrent", 50)  # Max concurrency
+    timeout_seconds = answer_config.get("timeout_seconds", 120.0)
+    max_retries = answer_config.get("max_retries", 3)
+
     # Load fine-grained checkpoint
     all_answer_results = {}
     if checkpoint_manager:
@@ -122,6 +127,11 @@ async def run_answer_stage(
                     # search_results not loaded to save space
                 ))
         return results
+
+    try:
+        llm_client = build_llm_client(answer_config.get("llm", {}))
+    except ClientConfigError as exc:
+        raise ValueError(f"Answer LLM config error: {exc}") from exc
     
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     completed = processed_count
@@ -159,8 +169,6 @@ OPTIONS:
 IMPORTANT: This is a multiple-choice question. You MUST analyze the context and select the BEST option. In your FINAL ANSWER, return ONLY the option letter like (a), (b), (c), or (d), nothing else."""
                 
                 # Call adapter's answer method with timeout and retry
-                max_retries = 3
-                timeout_seconds = 120.0  # 3 minutes timeout per attempt
                 answer = None
                 
                 for attempt in range(max_retries):
@@ -170,6 +178,8 @@ IMPORTANT: This is a multiple-choice question. You MUST analyze the context and 
                                 query=query,
                                 context=context,
                                 conversation_id=search_result.conversation_id,
+                                llm_client=llm_client,
+                                answer_config=answer_config,
                             ),
                             timeout=timeout_seconds
                         )
@@ -178,7 +188,9 @@ IMPORTANT: This is a multiple-choice question. You MUST analyze the context and 
                         
                     except asyncio.TimeoutError:
                         if attempt < max_retries - 1:
-                            tqdm.write(f"  ⏱️  Timeout (180s) for {qa.question_id}, retry {attempt + 1}/{max_retries}...")
+                            tqdm.write(
+                                f"  ⏱️  Timeout ({timeout_seconds}s) for {qa.question_id}, retry {attempt + 1}/{max_retries}..."
+                            )
                             await asyncio.sleep(2)  # Short delay before retry
                         else:
                             tqdm.write(f"  ❌ Timeout after {max_retries} attempts for {qa.question_id}: {qa.question[:50]}...")
@@ -229,14 +241,17 @@ IMPORTANT: This is a multiple-choice question. You MUST analyze the context and 
             
             return result
     
-    # Create all pending tasks
-    tasks = [
-        answer_single_with_tracking(qa, sr)
-        for qa, sr in pending_tasks
-    ]
-    
-    # Execute concurrently
-    await asyncio.gather(*tasks)
+    try:
+        # Create all pending tasks
+        tasks = [
+            answer_single_with_tracking(qa, sr)
+            for qa, sr in pending_tasks
+        ]
+        
+        # Execute concurrently
+        await asyncio.gather(*tasks)
+    finally:
+        await llm_client.close()
     
     # Close progress bar
     pbar.close()

@@ -1,12 +1,21 @@
-﻿# EverMemOS System Configuration
-
-name: "evermemos"
+﻿name: "mem0_local"
 version: "1.0"
-description: "EverMemOS"
+description: "Mem0 Local (mem0ai)"
 
-adapter: "evermemos"
+adapter: "mem0_local"
 
-# LLM configuration (используется для add/search внутри EverMemOS)
+mem0:
+  persist_dir: "evaluation/results/mem0_local_storage"
+  namespace: ""
+  suppress_logs: true
+  qdrant_host: "localhost"
+  qdrant_port: 6333
+  history_db_path: ":memory:"
+  llm_provider_override: ""
+  embeddings_provider_override: ""
+  rerank_provider_override: ""
+
+# LLM configuration (used by mem0 library internally)
 llm:
   provider: "neuro"
   model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
@@ -14,7 +23,7 @@ llm:
   base_url: "https://foundation-models.api.cloud.ru/v1/"
   temperature: 0.3
   max_tokens: 32768
-  openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+  openrouter_provider: ""
 
 # Embeddings configuration (vectorize)
 vectorize:
@@ -29,7 +38,7 @@ vectorize:
   batch_size: 10
   max_concurrent_requests: 5
 
-# Reranker configuration 
+# Reranker configuration (used outside mem0)
 rerank:
   provider: "neuro"
   model: "BAAI/bge-reranker-v2-m3"
@@ -41,19 +50,20 @@ rerank:
   max_concurrent_requests: 5
 
 search:
-  mode: "agentic"  # agentic | lightweight
+  top_k: 20
+  search_interval: 0.5
   num_workers: 10
-  reranker_concurrent_batches: 5
-  # When mode="lightweight", the search method defaults to "bm25_only".
-  # Uncomment and set the following to override:
-  # lightweight_search_mode: "hybrid"   # BM25 + Embedding + RRF fusion
-  # lightweight_search_mode: "emb_only" # Only Embedding search
 
 add:
-  event_log_max_concurrent: 10
-  emb_index_batch_size: 256
-  emb_index_max_concurrent_batches: 5
+  batch_size: 5
+  max_retries: 5
+  max_content_length: 8000
+  add_interval: 0.5
+  clean_before_add: false
+  post_add_wait_seconds: 0
 
-response:
-  max_concurrent: 10
+answer:
+  max_retries: 3
+
+num_workers: 5
 

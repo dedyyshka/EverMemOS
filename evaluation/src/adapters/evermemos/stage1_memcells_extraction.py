@@ -24,7 +24,9 @@ from common_utils.datetime_utils import (
     from_timestamp,
     get_now_with_timezone,
 )
-from memory_layer.llm.llm_provider import LLMProvider
+from evaluation.src.clients.factory import build_llm_client
+from evaluation.src.clients.llm_client import LLMClient
+from evaluation.src.clients.types import ClientConfigError
 from memory_layer.memcell_extractor.base_memcell_extractor import RawData, MemCell
 from memory_layer.memcell_extractor.conv_memcell_extractor import (
     ConvMemCellExtractor,
@@ -76,7 +78,7 @@ def parse_locomo_timestamp(timestamp_str: str) -> datetime:
 
 
 def raw_data_load(locomo_data_path: str) -> Dict[str, List[RawData]]:
-    with open(locomo_data_path, "r") as f:
+    with open(locomo_data_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     # data = [data[2]]
@@ -220,7 +222,7 @@ async def _extract_all_memories_for_memcell(
 
 async def memcell_extraction_from_conversation(
     raw_data_list: List[RawData],
-    llm_provider: LLMProvider = None,
+    llm_provider: LLMClient = None,
     memcell_extractor: ConvMemCellExtractor = None,
     smart_mask: bool = True,
     conv_id: str = None,  # Add conversation ID for progress bar description
@@ -364,7 +366,7 @@ async def process_single_conversation(
     conv_id: str,
     conversation: list,
     save_dir: str,
-    llm_provider: LLMProvider = None,
+    llm_provider: LLMClient = None,
     event_log_extractor: EventLogExtractor = None,
     progress_counter: dict = None,
     progress: Progress = None,
@@ -482,7 +484,10 @@ async def process_single_conversation(
             )
             return idx, event_log
 
-        sem = asyncio.Semaphore(20)
+        max_concurrent = (
+            config.event_log_max_concurrent if config else 20
+        )
+        sem = asyncio.Semaphore(max_concurrent)
 
         async def extract_with_semaphore(idx, memcell):
             async with sem:
@@ -514,7 +519,7 @@ async def process_single_conversation(
         memcell_dicts.append(memcell_dict)
 
     output_file = os.path.join(save_dir, f"memcell_list_conv_{conv_id}.json")
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(memcell_dicts, f, ensure_ascii=False, indent=2)
 
     # Clustering: process each memcell
@@ -608,7 +613,7 @@ async def process_single_conversation(
 
     stats_file = Path(save_dir) / "stats" / f"conv_{conv_id}_stats.json"
     stats_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(stats_file, "w") as f:
+    with open(stats_file, "w", encoding="utf-8") as f:
         json.dump(stats_output, f, ensure_ascii=False, indent=2)
 
     # Update progress
@@ -681,7 +686,7 @@ async def main():
         if os.path.exists(output_file):
             # Validate file (non-empty and parseable)
             try:
-                with open(output_file, "r") as f:
+                with open(output_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if data and len(data) > 0:  # Ensure data available
                         completed_convs.add(conv_id)
@@ -721,21 +726,28 @@ async def main():
         style="bold green",
     )
 
-    # Create shared LLM Provider and MemCell Extractor instances (solve connection race issue)
-    console.print("⚙️ Initializing LLM Provider...", style="yellow")
-    console.print(f"   Model: {config.llm_config[llm_service]['model']}", style="dim")
-    console.print(
-        f"   Base URL: {config.llm_config[llm_service]['base_url']}", style="dim"
-    )
+    # Create shared LLM Client and MemCell Extractor instances (solve connection race issue)
+    console.print("⚙️ Initializing LLM Client...", style="yellow")
 
-    shared_llm_provider = LLMProvider(
-        provider_type="openai",
-        model=config.llm_config[llm_service]["model"],
-        api_key=config.llm_config[llm_service]["api_key"],
-        base_url=config.llm_config[llm_service]["base_url"],
-        temperature=config.llm_config[llm_service]["temperature"],
-        max_tokens=config.llm_config[llm_service]["max_tokens"],
-    )
+    def _env(name: str) -> str:
+        return os.getenv(name, "").strip()
+
+    try:
+        llm_config = {
+            "provider": _env("LLM_PROVIDER"),
+            "model": _env("LLM_MODEL"),
+            "base_url": _env("LLM_BASE_URL"),
+            "api_key": _env("LLM_API_KEY"),
+            "openrouter_provider": _env("LLM_OPENROUTER_PROVIDER"),
+        }
+        shared_llm_provider = build_llm_client(llm_config)
+        console.print(f"   Model: {llm_config['model']}", style="dim")
+        console.print(f"   Base URL: {llm_config['base_url']}", style="dim")
+    except ClientConfigError as exc:
+        console.print(
+            f"❌ Ошибка конфигурации LLM клиента: {exc}", style="bold red"
+        )
+        return
 
     # Create shared Event Log Extractor
     console.print("⚙️ Initializing Event Log Extractor...", style="yellow")
@@ -869,7 +881,7 @@ async def main():
     # Save summary results
     all_memcells_dicts = [memcell.to_dict() for memcell in all_memcells]
     summary_file = os.path.join(save_dir, "memcell_list_all.json")
-    with open(summary_file, "w") as f:
+    with open(summary_file, "w", encoding="utf-8") as f:
         json.dump(all_memcells_dicts, f, ensure_ascii=False, indent=2)
     console.print(f"\n💾 Summary results saved to: {summary_file}", style="green")
 
@@ -884,7 +896,7 @@ async def main():
     if stats_dir.exists():
         for stats_file in stats_dir.glob("conv_*_stats.json"):
             try:
-                with open(stats_file) as f:
+                with open(stats_file, encoding="utf-8") as f:
                     conv_stats = json.load(f)
                 total_clusters += conv_stats.get("clustering", {}).get(
                     "total_clusters", 0
@@ -921,7 +933,7 @@ async def main():
         },
     }
     summary_info_file = os.path.join(save_dir, "processing_summary.json")
-    with open(summary_info_file, "w") as f:
+    with open(summary_info_file, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     console.print(f"📊 Processing summary saved to: {summary_info_file}", style="green")
 

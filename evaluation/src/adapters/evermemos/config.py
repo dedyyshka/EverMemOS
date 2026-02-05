@@ -71,6 +71,14 @@ class ExperimentConfig:
         "or details that directly answer the question."
     )
 
+    # Concurrency knobs (configurable from system-yaml)
+    event_log_max_concurrent: int = 20
+    emb_index_batch_size: int = 256
+    emb_index_max_concurrent_batches: int = 5
+    response_max_concurrent: int = 50
+    agentic_qa_max_concurrent: int = 20
+    qa_max_concurrent: int = 128
+
     # Stage4 parameter: select top-k from event_ids to build context
     response_top_k: int = 10
     

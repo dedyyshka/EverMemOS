@@ -5,7 +5,7 @@ Provides common functionality for all online memory system APIs (Mem0, Memos, Me
 All online API adapters can inherit from this class.
 
 Design principles:
-- Provide default answer() implementation (using generic prompt)
+- Provide default answer() implementation (using generic prompt and eval LLM client)
 - Subclasses can override answer() to use their own specific prompts
 - Provide helper methods for data format conversion
 """
@@ -32,17 +32,14 @@ from evaluation.src.core.data_models import Conversation, SearchResult
 from evaluation.src.utils.config import load_yaml
 
 # Import Memory Layer components
-from memory_layer.llm.llm_provider import LLMProvider
-
 
 class OnlineAPIAdapter(BaseAdapter):
     """
     Online API Adapter base class.
 
     Provides common functionality:
-    1. LLM Provider initialization
-    2. Answer generation (reuses EverMemOS implementation)
-    3. Standard format conversion helper methods
+    1. Answer generation via eval LLM client (from answer_stage)
+    2. Standard format conversion helper methods
 
     Subclasses only need to implement:
     - add(): Call online API to ingest data
@@ -52,18 +49,6 @@ class OnlineAPIAdapter(BaseAdapter):
     def __init__(self, config: dict, output_dir: Path = None):
         super().__init__(config)
         self.output_dir = Path(output_dir) if output_dir else Path(".")
-
-        # Initialize LLM Provider (for answer generation)
-        llm_config = config.get("llm", {})
-
-        self.llm_provider = LLMProvider(
-            provider_type=llm_config.get("provider", "openai"),
-            model=llm_config.get("model", "gpt-4o-mini"),
-            api_key=llm_config.get("api_key", ""),
-            base_url=llm_config.get("base_url", "https://api.openai.com/v1"),
-            temperature=llm_config.get("temperature", 0.3),
-            max_tokens=llm_config.get("max_tokens", 32768),
-        )
 
         # Load prompts (from YAML file)
         evaluation_root = Path(__file__).parent.parent.parent
@@ -75,7 +60,6 @@ class OnlineAPIAdapter(BaseAdapter):
         self.num_workers = self._get_num_workers(config)
 
         print(f"✅ {self.__class__.__name__} initialized")
-        print(f"   LLM Model: {llm_config.get('model')}")
         print(f"   Output Dir: {self.output_dir}")
         print(f"   Num Workers: {self.num_workers}")
 
@@ -561,13 +545,17 @@ class OnlineAPIAdapter(BaseAdapter):
         # Get answer prompt (subclasses can override _get_answer_prompt)
         prompt = self._get_answer_prompt().format(context=context, question=query)
 
+        llm_client = kwargs.get("llm_client")
+        if llm_client is None:
+            raise ValueError("llm_client обязателен для answer() в OnlineAPIAdapter.")
+
         # Get retry count
         max_retries = self.config.get("answer", {}).get("max_retries", 3)
 
         # Generate answer
         for i in range(max_retries):
             try:
-                result = await self.llm_provider.generate(prompt=prompt, temperature=0)
+                result = await llm_client.generate(prompt=prompt, temperature=0)
 
                 # Clean result (remove possible "FINAL ANSWER:" prefix)
                 if "FINAL ANSWER:" in result:

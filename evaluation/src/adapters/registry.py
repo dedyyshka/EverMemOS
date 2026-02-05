@@ -16,6 +16,7 @@ _ADAPTER_MODULES = {
     
     # Online API systems
     "mem0": "evaluation.src.adapters.mem0_adapter",
+    "mem0_local": "evaluation.src.adapters.mem0_local_adapter",
     "memos": "evaluation.src.adapters.memos_adapter",
     "memu": "evaluation.src.adapters.memu_adapter",
     "zep": "evaluation.src.adapters.zep_adapter",

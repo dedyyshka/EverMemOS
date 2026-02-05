@@ -1,4 +1,4 @@
-# LoCoMo Dataset Configuration
+﻿# EverMemBench Dataset Configuration
 
 name: "evermembench"
 version: "1.0"
@@ -12,24 +12,44 @@ data:
   path: "evermembench/evermembench.json"  # Fixed format to match PersonaMem
   format: "locomo"  # Native format, no conversion needed
 
+# Answer generation configuration
+answer:
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 32768
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+  max_retries: 3
+  max_concurrent: 50
+  timeout_seconds: 120
+
 # Evaluation configuration
 evaluation:
-  type: "hybrid"  # Use hybrid evaluator: Exact Match for multiple-choice, LLM Judge for open-ended
-  
+  type: "hybrid"  # exact_match for multiple-choice + llm_judge for open-ended
+
+  # LLM Judge settings (for open-ended questions)
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 2048
+    timeout: 60
+    max_retries: 3
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+
+  num_runs: 3
+  num_workers: 10
+
   # Exact match settings (for multiple-choice questions)
   case_sensitive: false  # Case insensitive
   normalize_whitespace: true  # Normalize whitespace
   extract_choice: true  # Extract options from the generated answer (like (a), (b))
-  
-  # LLM Judge settings (for open-ended questions)
-  llm:
-    provider: "openai"
-    model: "gpt-4o-mini"
-    api_key: "${LLM_API_KEY}"
-    base_url: "${LLM_BASE_URL:https://openrouter.ai/api/v1}"
-  
-  num_runs: 3  # Number of judging runs per question (for LLM Judge)
-  
+
   # Filter settings
   # Categories: "1", "2", "3", "3.1", "3.2" (multiple types)
   filter_category: []  # Can use integers or strings, like [3.2] or ["3.2"]

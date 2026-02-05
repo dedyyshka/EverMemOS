@@ -13,9 +13,9 @@ from tqdm import tqdm
 
 from evaluation.src.adapters.evermemos.config import ExperimentConfig
 from evaluation.src.adapters.evermemos.prompts.answer_prompts import ANSWER_PROMPT
-
-# Use Memory Layer's LLMProvider
-from memory_layer.llm.llm_provider import LLMProvider
+from evaluation.src.clients.factory import build_llm_client
+from evaluation.src.clients.llm_client import LLMClient
+from evaluation.src.clients.types import ClientConfigError
 
 
 # Context building template (migrated from stage3)
@@ -108,15 +108,15 @@ def build_context_from_event_ids(
 
 
 async def locomo_response(
-    llm_provider: LLMProvider,  # Use LLMProvider
+    llm_client: LLMClient,
     context: str,
     question: str,
     experiment_config: ExperimentConfig,
 ) -> str:
-    """Generate answer (using LLMProvider).
+    """Generate answer (using LLMClient).
 
     Args:
-        llm_provider: LLM Provider
+        llm_client: LLM Client
         context: Retrieved context
         question: User question
         experiment_config: Experiment configuration
@@ -128,7 +128,7 @@ async def locomo_response(
 
     for i in range(experiment_config.max_retries):
         try:
-            result = await llm_provider.generate(prompt=prompt, temperature=0)
+            result = await llm_client.generate(prompt=prompt, temperature=0)
 
             # Safe parse FINAL ANSWER (avoid index out of range)
             if "FINAL ANSWER:" in result:
@@ -155,7 +155,7 @@ async def locomo_response(
 async def process_qa(
     qa,
     search_result,
-    llm_provider,
+    llm_client,
     experiment_config,
     memcell_map: Dict[str, dict],
     speaker_a: str,
@@ -167,7 +167,7 @@ async def process_qa(
     Args:
         qa: Question and answer pair
         search_result: Retrieval result (contains event_ids)
-        llm_provider: LLM Provider
+        llm_client: LLM Client
         experiment_config: Experiment configuration
         memcell_map: Mapping of event_id -> memcell
         speaker_a: Speaker A
@@ -193,7 +193,7 @@ async def process_qa(
         top_k=top_k,
     )
 
-    answer = await locomo_response(llm_provider, context, query, experiment_config)
+    answer = await locomo_response(llm_client, context, query, experiment_config)
 
     response_duration_ms = (time() - start) * 1000
 
@@ -230,18 +230,24 @@ async def main(search_path, save_path):
     - After: ~8 minutes (concurrent 50)
     - Speedup: ~10x
     """
-    llm_config = ExperimentConfig.llm_config["openai"]
     experiment_config = ExperimentConfig()
+    llm_client = None
 
-    # Create LLM Provider (replaces AsyncOpenAI)
-    llm_provider = LLMProvider(
-        provider_type="openai",
-        model=llm_config["model"],
-        api_key=llm_config["api_key"],
-        base_url=llm_config["base_url"],
-        temperature=llm_config.get("temperature", 0.0),
-        max_tokens=llm_config.get("max_tokens", 32768),
-    )
+    def _env(name: str) -> str:
+        return os.getenv(name, "").strip()
+
+    try:
+        llm_config = {
+            "provider": _env("LLM_PROVIDER"),
+            "model": _env("LLM_MODEL"),
+            "base_url": _env("LLM_BASE_URL"),
+            "api_key": _env("LLM_API_KEY"),
+            "openrouter_provider": _env("LLM_OPENROUTER_PROVIDER"),
+        }
+        llm_client = build_llm_client(llm_config)
+    except ClientConfigError as exc:
+        print(f"❌ Ошибка конфигурации LLM клиента: {exc}")
+        return
 
     locomo_df = pd.read_json(experiment_config.datase_path)
     with open(search_path) as file:
@@ -264,7 +270,7 @@ async def main(search_path, save_path):
 
     # Global concurrency control (key optimization)
     # Control number of QA pairs processed simultaneously to avoid API rate limiting
-    MAX_CONCURRENT = 50  # Adjust based on API limits (10-100)
+    MAX_CONCURRENT = experiment_config.response_max_concurrent  # Configurable
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     # Collect all QA pairs (across conversations)
@@ -280,7 +286,7 @@ async def main(search_path, save_path):
             result = await process_qa(
                 qa,
                 search_result,
-                llm_provider,
+                llm_client,
                 experiment_config,
                 memcell_map,
                 speaker_a,
@@ -409,6 +415,9 @@ async def main(search_path, save_path):
     for checkpoint_file in checkpoint_files:
         checkpoint_file.unlink()
         print(f"  🗑️  Removed checkpoint: {checkpoint_file.name}")
+
+    if llm_client:
+        await llm_client.close()
 
 
 if __name__ == "__main__":

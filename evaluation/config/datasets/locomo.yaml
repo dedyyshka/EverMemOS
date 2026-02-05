@@ -1,4 +1,4 @@
-# LoCoMo Dataset Configuration
+﻿# LoCoMo Dataset Configuration
 
 name: "locomo"
 version: "1.0"
@@ -12,19 +12,38 @@ data:
   path: "locomo/locomo10.json"  # Relative to evaluation/data/ or project root data/
   format: "locomo"  # Native format, no conversion needed
 
+# Answer generation configuration
+answer:
+  llm:
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
+    api_key: "${LLM_API_KEY}"
+    temperature: 0.0
+    max_tokens: 32768
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+  max_retries: 3
+  max_concurrent: 10
+  timeout_seconds: 120
+
 # Evaluation configuration
 evaluation:
-  type: "llm_judge"  # llm_judge | exact_match
-  
-  # LLM Judge settings
+  type: "llm_judge"  # llm_judge | exact_match | hybrid
+
   llm:
-    provider: "openai"
-    model: "gpt-4o-mini"
+    provider: "neuro"
+    model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+    base_url: "https://foundation-models.api.cloud.ru/v1/"
     api_key: "${LLM_API_KEY}"
-    base_url: "${LLM_BASE_URL:https://openrouter.ai/api/v1}"
-  
-  num_runs: 3  # Number of judging runs per question
-  
+    temperature: 0.0
+    max_tokens: 4096
+    timeout: 60
+    max_retries: 3
+    openrouter_provider: ""  # Optional, only if base_url is openrouter.ai
+
+  num_runs: 2
+  num_workers: 10
+
   # Filter settings
   # LoCoMo categories: "1", "2", "3", "5" (adversarial questions)
   filter_category: [5]  # Can use integers or strings, like [5] or ["5"]
